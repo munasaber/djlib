@@ -89,8 +89,6 @@ class constant_t_run:
         integrated_potential = []
         for index, value in enumerate(self.mu):
             index = index + 1
-            # if index == 0:
-            #    integrated_potential.append(free_energy_reference)
             if index > 0:
                 current_mu = self.mu[0:index]
                 current_b = self.b[0:index]
@@ -139,8 +137,6 @@ class heating_run:
         integrated_potential = []
         for index in range(len(self.b)):
             index = index + 1
-            # if index == 0:
-            #    integrated_potential.append(free_energy_reference)
             if index > 0:
                 current_b = self.b[0:index]
                 current_potential_energy = self.pot_eng[0:index]
@@ -176,8 +172,6 @@ class cooling_run:
         integrated_potential = []
         for index, value in enumerate(self.b):
             index = index + 1
-            # if index == 0:
-            #    integrated_potential.append(free_energy_reference)
             if index > 0:
                 current_b = self.b[0:index]
                 current_potential_energy = self.pot_eng[0:index]

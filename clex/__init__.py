@@ -1,1 +1,1 @@
-from clex import *
+from .clex import *
