@@ -249,6 +249,7 @@ def run_cooling_from_const_temperature(
     const_temp_run_dir,
     temp_final=20,
     temperature_increment=-5,
+    scheduler="slurm",
 ):
 
     # read mu values, temperature information from the existing settings file
@@ -289,14 +290,25 @@ def run_cooling_from_const_temperature(
 
         # Run MC cooling
         user_command = "casm monte -s mc_settings.json > mc_results.out"
-        format_slurm_job(
-            jobname=run_name,
-            hours=20,
-            user_command=user_command,
-            output_dir=current_dir,
-            delete_submit_script=False,
-        )
-        submit_slurm_job(current_dir)
+        if scheduler == "slurm":
+            format_slurm_job(
+                jobname=run_name,
+                hours=20,
+                user_command=user_command,
+                output_dir=current_dir,
+                delete_submit_script=False,
+            )
+            submit_slurm_job(current_dir)
+        elif scheduler == "pbs":
+            format_pbs_job(
+                jobname=run_name,
+                hours=20,
+                user_command=user_command,
+                output_dir=current_dir,
+                delete_submit_script=False,
+            )
+            submit_pbs_job(current_dir)
+
         """
         print("Submitting: ", end="")
         print(current_dir)
@@ -311,6 +323,7 @@ def run_heating(
     temp_init=20,
     temp_final=2000,
     temp_increment=5,
+    scheduler="slurm",
 ):
 
     for mu_value in mu_values:
@@ -336,14 +349,24 @@ def run_heating(
 
         # Run MC heating
         user_command = "casm monte -s mc_settings.json > mc_results.out"
-        format_slurm_job(
-            jobname=run_name,
-            hours=20,
-            user_command=user_command,
-            output_dir=current_dir,
-            delete_submit_script=False,
-        )
-        submit_slurm_job(current_dir)
+        if scheduler == "slurm":
+            format_slurm_job(
+                jobname=run_name,
+                hours=20,
+                user_command=user_command,
+                output_dir=current_dir,
+                delete_submit_script=False,
+            )
+            submit_slurm_job(current_dir)
+        elif scheduler == "pbs":
+            format_pbs_job(
+                jobname=run_name,
+                hours=20,
+                user_command=user_command,
+                output_dir=current_dir,
+                delete_submit_script=False,
+            )
+            submit_pbs_job(current_dir)
         """
         print("Submitting: ", end="")
         print(current_dir)
@@ -382,70 +405,7 @@ def plot_heating_and_cooling(heating_run, cooling_run):
     return fig
 
 
-def compile_all_gibbs_from_mc_heating_runs(heating_runs_dir):
-    """Computes gibbs free energies for heating runs, and returns gibbs and composition vectors for each fixed T
-
-    Args:
-        heating_runs_dir(str): Path to the directory containing the monte carlo simulations of heating runs.
-
-    Returns:
-        t_indexed_gibbs_results_list(list): List of "n" dictionaries, where "n" is the number of fiexed temperatures in the monte carlo simulation
-                                            Each dictionary takes the form:
-                                            {'T':t,                             #Temperature value: a scalar
-                                            'mu':mu_at_fixed_t,                 #chemical potential values: a vector of length "m"
-                                            'x':x_at_fixed_t,                   #composition values: a vector of length "m"
-                                            'gibbs':gibbs_at_fixed_t}           #Gibbs free energy values: a vector of length "m"
-
-    """
-    mc_directory_list = glob(os.path.join(heating_runs_dir, "mu_*"))
-
-    gibbs_results_list = []
-    for run in mc_directory_list:
-
-        # read mc results file
-        results_file = os.path.join(run, "results.json")
-        settings_file = os.path.join(run, "mc_settings.json")
-        with open(results_file) as f:
-            results = json.load(f)
-        with open(settings_file) as f:
-            settings = json.load(f)
-        mu_value = settings["driver"]["initial_conditions"]["param_chem_pot"]["a"]
-
-        x = results["<comp_n(N)>"]
-        b = np.asarray(results["Beta"])
-        temperature = results["T"]
-        E = results["<formation_energy>"]
-        potential_energy = results["<potential_energy>"]
-        mu = np.ones(b.shape[0]) * mu_value
-
-        # Calculate gibbs
-        integrated_potential = integrate_heating_grand_canonical_free_energy(
-            x, b, potential_energy, mu
-        )
-        gibbs = integrated_potential + mu * x
-
-        # Format and return data (indexed by mu, not by temperature):
-        gibbs_results_list.append(
-            {"mu": mu[0], "temperature": temperature, "x": x, "gibbs": gibbs}
-        )
-
-    # Re-format to indexing by temperature
-    t_indexed_gibbs_results_list = []
-    for t_index, t in enumerate(temperature):
-        print(t)
-        mu_at_fixed_t = []
-        x_at_fixed_t = []
-        gibbs_at_fixed_t = []
-
-        # collect mu's, x's and gibbs energies consistent with fixed temperature
-        for fixed_mu_run in gibbs_results_list:
-            mu_at_fixed_t.append(fixed_mu_run["mu"])
-            x_at_fixed_t.append(fixed_mu_run["x"][t_index])
-            gibbs_at_fixed_t.append(fixed_mu_run["gibbs"][t_index])
-        t_indexed_gibbs_results_list.append(
-            {"T": t, "mu": mu_at_fixed_t, "x": x_at_fixed_t, "gibbs": gibbs_at_fixed_t}
-        )
-    return t_indexed_gibbs_results_list
+# def check_free_energy_crossing
 
 
 def predict_free_energy_crossing(
@@ -648,8 +608,50 @@ def plot_mc_results(mc_runs_directory, save_image=False, show_labels=False):
     return fig
 
 
+def submit_pbs_job(run_dir):
+    submit_file = os.path.join(run_dir, "submit_pbs.sh")
+    os.system("qsub %s" % submit_file)
+
+
+def format_pbs_job(
+    jobname, hours, user_command, output_dir, delete_submit_script=False
+):
+    """
+    Formats a pbs (TORQUE) submit file.
+    Args:
+        jobname(str): Name of the slurm job.
+        hours(int): number of hours to run the job. Only accepts integer values.
+        user_command(str): command line command submitted by the user as a string.
+        output_dir(str): Path to the directory that will contain the submit file. Assumes that submit file will be named "submit.sh"
+        delete_submit_script(bool): Whether the submission script should delete itself upon completion.
+    Returns:
+        None.
+    """
+    submit_file_path = os.path.join(output_dir, "submit_pbs.sh")
+    templates_path = os.path.join(mc_lib_dir, "../templates")
+    with open(os.path.join(templates_path, "single_task_pbs_template.sh")) as f:
+        template = f.read()
+
+        if delete_submit_script:
+            delete_submit_script = "rm %s" % submit_file_path
+        else:
+            delete_submit_script = ""
+
+        hours = int(m.ceil(hours))
+        s = template.format(
+            jobname=jobname,
+            rundir=output_dir,
+            hours=hours,
+            user_command=user_command,
+            delete_submit_script=delete_submit_script,
+        )
+    with open(submit_file_path, "w") as f:
+        f.write(s)
+    os.system("chmod +x %s " % submit_file_path)
+
+
 def submit_slurm_job(run_dir):
-    submit_file = os.path.join(run_dir, "submit.sh")
+    submit_file = os.path.join(run_dir, "submit_slurm.sh")
     os.system("sbatch %s" % submit_file)
 
 
@@ -667,7 +669,7 @@ def format_slurm_job(
     Returns:
         None.
     """
-    submit_file_path = os.path.join(output_dir, "submit.sh")
+    submit_file_path = os.path.join(output_dir, "submit_slurm.sh")
     templates_path = os.path.join(mc_lib_dir, "../templates")
     with open(os.path.join(templates_path, "single_task_slurm_template.sh")) as f:
         template = f.read()
