@@ -351,6 +351,20 @@ def run_heating(
         """
 
 
+def plot_const_t_x_vs_mu(const_t_left, const_t_right):
+
+    full_mu = np.concatenate((const_t_left.mu, const_t_right.mu))
+    full_x = np.concatenate((const_t_left.x, const_t_right.x))
+
+    plt.scatter(full_x, full_mu, color="xkcd:crimson")
+    plt.xlabel("Composition (a)", fontsize=18)
+    plt.ylabel("Chemical Potential (a)", fontsize=18)
+    fig = plt.gcf()
+    fig.set_size_inches(15, 19)
+
+    return fig
+
+
 def plot_heating_and_cooling(heating_run, cooling_run):
     bullet_size = 3
     if heating_run.mu[0] != cooling_run.mu[0]:
