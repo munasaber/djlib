@@ -6,7 +6,29 @@ import scipy.interpolate
 import scipy.optimize
 import numpy as np
 from glob import glob
-from djlib import *
+import pathlib
+import math as m
+
+mc_lib_dir = pathlib.Path(__file__).parent.resolve()
+
+
+def find(lst, a):
+    """Finds the index of an element that matches a specified value.
+    Args:
+        a(float): The value to search for
+    Returns:
+        match_list[0](int): The index that a match occurrs, assuming there is only one match.
+    """
+    tolerance = 1e-14
+    match_list = [
+        i for i, x in enumerate(lst) if np.isclose([x], [a], rtol=tolerance)[0]
+    ]
+    if len(match_list) == 1:
+        return match_list[0]
+    elif len(match_list) > 1:
+        print("Found more than one match. This is not expected.")
+    elif len(match_list) == 0:
+        print("Search value does not match any value in the provided list.")
 
 
 def read_mc_results_file(results_file_path):
@@ -183,6 +205,150 @@ class cooling_run:
                     )
                 )
         self.integ_grand_canonical = np.asarray(integrated_potential)
+
+
+def format_mc_settings(
+    superdupercell,
+    mu_init,
+    mu_final,
+    mu_increment,
+    temp_init,
+    temp_final,
+    temp_increment,
+    output_file,
+    start_config_path,
+):
+
+    templates_path = os.path.join(mc_lib_dir, "../templates")
+    # Read template
+    with open(os.path.join(templates_path, "mc_grand_canonical_template.json")) as f:
+        mc_settings = json.load(f)
+
+    # Write settings
+    mc_settings["supercell"] = superdupercell
+    mc_settings["driver"]["initial_conditions"]["param_chem_pot"]["a"] = mu_init
+    mc_settings["driver"]["initial_conditions"]["temperature"] = temp_init
+    mc_settings["driver"]["final_conditions"]["param_chem_pot"]["a"] = mu_final
+    mc_settings["driver"]["final_conditions"]["temperature"] = temp_final
+    mc_settings["driver"]["incremental_conditions"]["param_chem_pot"][
+        "a"
+    ] = mu_increment
+    mc_settings["driver"]["incremental_conditions"]["temperature"] = temp_increment
+
+    if (start_config_path != False) and (start_config_path != None):
+        mc_settings["driver"]["motif"]["configdof"] = start_config_path
+
+    # write settings file
+    with open(output_file, "w") as f:
+        json.dump(mc_settings, f, indent="")
+
+
+def run_cooling_from_const_temperature(
+    mu_values,
+    mc_cooling_dir,
+    const_temp_run_dir,
+    temp_final=20,
+    temperature_increment=-5,
+):
+
+    # read mu values, temperature information from the existing settings file
+    (const_t_mu, x, b, temperature_values, potential_energy) = read_mc_results_file(
+        os.path.join(const_temp_run_dir, "results.json")
+    )
+    superdupercell = read_superdupercell(
+        os.path.join(const_temp_run_dir, "mc_settings.json")
+    )
+    # for each mu value, start a cooling run with the condition.# final state as the initial state (condition indexign starts at 0)
+    for mu in mu_values:
+
+        # Set up run directory
+        run_name = "mu_%.4f_%.4f_T_%d_%d" % (mu, mu, temperature_values[0], temp_final)
+        current_dir = os.path.join(mc_cooling_dir, run_name)
+        os.makedirs(current_dir)
+        os.chdir(current_dir)
+
+        # get const_t_mu index that matches mu
+        mu_index = find(const_t_mu, mu)
+
+        # Write settings file
+        settings_file = os.path.join(current_dir, "mc_settings.json")
+        start_config_path = os.path.join(
+            const_temp_run_dir, "conditions.%d" % mu_index, "final_state.json"
+        )
+        format_mc_settings(
+            superdupercell,
+            mu,
+            mu,
+            0,
+            temperature_values[0],
+            temp_final,
+            temperature_increment,
+            settings_file,
+            start_config_path,
+        )
+
+        # Run MC cooling
+        user_command = "casm monte -s mc_settings.json > mc_results.out"
+        format_slurm_job(
+            jobname=run_name,
+            hours=20,
+            user_command=user_command,
+            output_dir=current_dir,
+            delete_submit_script=False,
+        )
+        submit_slurm_job(current_dir)
+        """
+        print("Submitting: ", end="")
+        print(current_dir)
+        os.system("casm monte -s mc_settings.json > mc_results.out &")
+        """
+
+
+def run_heating(
+    mc_heating_dir,
+    mu_values,
+    superdupercell,
+    temp_init=20,
+    temp_final=2000,
+    temp_increment=5,
+):
+
+    for mu_value in mu_values:
+
+        run_name = "mu_%.4f_%.4f_T_%d_%d" % (mu_value, mu_value, temp_init, temp_final)
+        current_dir = os.path.join(mc_heating_dir, run_name)
+        os.makedirs(current_dir)
+        os.chdir(current_dir)
+
+        # Format settings file for this heating run
+        settings_file = os.path.join(current_dir, "mc_settings.json")
+        format_mc_settings(
+            superdupercell,
+            mu_value,
+            mu_value,
+            0,
+            temp_init,
+            temp_final,
+            temp_increment,
+            settings_file,
+            start_config_path=False,
+        )
+
+        # Run MC heating
+        user_command = "casm monte -s mc_settings.json > mc_results.out"
+        format_slurm_job(
+            jobname=run_name,
+            hours=20,
+            user_command=user_command,
+            output_dir=current_dir,
+            delete_submit_script=False,
+        )
+        submit_slurm_job(current_dir)
+        """
+        print("Submitting: ", end="")
+        print(current_dir)
+        os.system("casm monte -s mc_settings.json > mc_results.out &")
+        """
 
 
 def plot_heating_and_cooling(heating_run, cooling_run):
@@ -466,3 +632,45 @@ def plot_mc_results(mc_runs_directory, save_image=False, show_labels=False):
         print("Saving image to file: ", end="")
         print(os.path.join(mc_runs_directory, title + ".png"))
     return fig
+
+
+def submit_slurm_job(run_dir):
+    submit_file = os.path.join(run_dir, "submit.sh")
+    os.system("sbatch %s" % submit_file)
+
+
+def format_slurm_job(
+    jobname, hours, user_command, output_dir, delete_submit_script=False
+):
+    """
+    Formats a slurm job sumbission script. Assumes that the task only needs one thread.
+    Args:
+        jobname(str): Name of the slurm job.
+        hours(int): number of hours to run the job. Only accepts integer values.
+        user_command(str): command line command submitted by the user as a string.
+        output_dir(str): Path to the directory that will contain the submit file. Assumes that submit file will be named "submit.sh"
+        delete_submit_script(bool): Whether the submission script should delete itself upon completion.
+    Returns:
+        None.
+    """
+    submit_file_path = os.path.join(output_dir, "submit.sh")
+    templates_path = os.path.join(mc_lib_dir, "../templates")
+    with open(os.path.join(templates_path, "single_task_slurm_template.sh")) as f:
+        template = f.read()
+
+        if delete_submit_script:
+            delete_submit_script = "rm %s" % submit_file_path
+        else:
+            delete_submit_script = ""
+
+        hours = int(m.ceil(hours))
+        s = template.format(
+            jobname=jobname,
+            rundir=output_dir,
+            hours=hours,
+            user_command=user_command,
+            delete_submit_script=delete_submit_script,
+        )
+    with open(submit_file_path, "w") as f:
+        f.write(s)
+    os.system("chmod 755 %s " % submit_file_path)
