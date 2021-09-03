@@ -53,12 +53,12 @@ def checkhull(hull_simplices, test_coords):
     below_hull = []
     on_hull = []
     for i in range(x_test.shape[0]):
-        if hull_dist[i] > 0:
+        if np.isclose(hull_dist[i], 0, 1e-14):
+            on_hull.append([x_test[i], y_test[i]])
+        elif hull_dist[i] > 0:
             above_hull.append([x_test[i], y_test[i]])
         elif hull_dist[i] < 0:
             below_hull.append([x_test[i], y_test[i]])
-        elif hull_dist[i] == 0:
-            on_hull.append([x_test[i], y_test[i]])
     above_hull = np.array(above_hull)
     below_hull = np.array(below_hull)
     on_hull = np.array(on_hull)
