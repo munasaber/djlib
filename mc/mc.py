@@ -243,7 +243,7 @@ def format_mc_settings(
         json.dump(mc_settings, f, indent="")
 
 
-def run_cooling_from_const_temperature(
+def run_cooling_from_const_temperature( 
     mu_values,
     mc_cooling_dir,
     const_temp_run_dir,
@@ -564,8 +564,8 @@ def simulation_is_complete(mc_run_dir):
     return simulation_status
 
 
-def plot_mc_results(mc_runs_directory, save_image=False, show_labels=False):
-    """plot_mc_results(mc_runs_directory, save_image_path=False, show_labels=False)
+def plot_rain_plots(mc_runs_directory, save_image=False, show_labels=False):
+    """plot_rain_plots(mc_runs_directory, save_image_path=False, show_labels=False)
 
     Generate a single (T vs composition) plot using all monte carlo runs in mc_runs_directory.
     Args:
