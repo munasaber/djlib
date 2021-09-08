@@ -28,7 +28,9 @@ def find(lst, a):
     elif len(match_list) > 1:
         print("Found more than one match. This is not expected.")
     elif len(match_list) == 0:
-        print("Search value does not match any value in the provided list.")
+        print(
+            "\nWARNING: Search value does not match any value in the provided list.\n"
+        )
 
 
 def read_mc_results_file(results_file_path):
@@ -36,10 +38,10 @@ def read_mc_results_file(results_file_path):
     Args;
         results_file_path(str): Path to the results.json file for the given monte carlo simulation.
     Returns:
-        x(list): Vector of compostitions
-        b(list): Vector of beta values
-        temperature(list): Vecor of temperature values (K)
-        potential_energy(list): Vector of potential energy values (E-mu*x)
+        x(ndarray): Vector of compostitions
+        b(ndarray): Vector of beta values
+        temperature(ndarray): Vecor of temperature values (K)
+        potential_energy(ndarray): Vector of potential energy values (E-mu*x)
     """
     with open(results_file_path) as f:
         results = json.load(f)
@@ -50,6 +52,76 @@ def read_mc_results_file(results_file_path):
     temperature = np.array(results["T"])
     potential_energy = np.array(results["<potential_energy>"])
     return (mu, x, b, temperature, potential_energy)
+
+
+def read_lte_results(results_file_path):
+    """
+    Takes a lte results.json file and returns outputs from the simulation.
+
+    Args:
+        results_file_path(str): Path to the results.json file.
+    Returns:
+        tuple(
+            mu(ndarray): Vector of chemical potentials (species "a")
+            b(ndarray): Vector of Beta values.
+            t(ndarray): Vector of temperatures.
+            x(ndarray): Vector of compositions.
+            pot_eng(ndarray): Vector of phi values (grand canonical potential energy)
+        )
+    """
+    with open(results_file_path) as f:
+        results = json.load(f)
+
+    mu = np.array(results["param_chem_pot(a)"])
+    b = np.array(results["Beta"])
+    t = np.array(results["T"])
+    x = np.array(results["gs_comp(a)"])
+    pot_eng = np.array(results["phi_LTE"])
+
+    return (mu, b, t, x, pot_eng)
+
+
+def read_mc_settings(settings_file):
+    """
+    Function to read chemical potential and temperature values from a mc_settings.json file.
+
+    Args:
+        settings_file(str): Path to a mc_settings.json file.
+    Returns:
+        tuple(
+            mu_values,      (ndarray): Vector of chemical potential values.
+            t_values        (ndarray): Vector of temperature values.
+        )
+    """
+    with open(settings_file) as f:
+        settings = json.load(f)
+
+    mu_start = settings["driver"]["initial_conditions"]["param_chem_pot"]["a"]
+    mu_stop = settings["driver"]["final_conditions"]["param_chem_pot"]["a"]
+    mu_increment = settings["driver"]["incremental_conditions"]["param_chem_pot"]["a"]
+    t_start = settings["driver"]["initial_conditions"]["temperature"]
+    t_stop = settings["driver"]["final_conditions"]["temperature"]
+    t_increment = settings["driver"]["incremental_conditions"]["temperature"]
+
+    if mu_increment != 0:
+        mu_length = int(np.abs((mu_start - mu_stop) / mu_increment))
+    else:
+        mu_length = 1
+    if t_increment != 0:
+        t_length = int(np.abs((t_start - t_stop) / t_increment))
+    else:
+        t_length = 1
+
+    if mu_length == 1:
+        mu_values = np.ones(t_length) * mu_start
+    elif mu_length > 1:
+        mu_values = np.linspace(mu_start, mu_stop, mu_length)
+    if t_length == 1:
+        t_values = np.ones(mu_length) * t_start
+    elif t_length > 1:
+        t_values = np.linspace(t_start, t_stop, t_length)
+
+    return (mu_values, t_values)
 
 
 def read_superdupercell(mc_settings_file):
@@ -249,7 +321,7 @@ def run_cooling_from_const_temperature(
     const_temp_run_dir,
     temp_final=20,
     temperature_increment=-5,
-    scheduler="slurm",
+    run_location="local",
 ):
 
     # read mu values, temperature information from the existing settings file
@@ -265,55 +337,59 @@ def run_cooling_from_const_temperature(
         # Set up run directory
         run_name = "mu_%.4f_%.4f_T_%d_%d" % (mu, mu, temperature_values[0], temp_final)
         current_dir = os.path.join(mc_cooling_dir, run_name)
-        os.makedirs(current_dir)
-        os.chdir(current_dir)
+        if os.path.isfile(os.path.join(current_dir, "results.json")) == False:
 
-        # get const_t_mu index that matches mu
-        mu_index = find(const_t_mu, mu)
+            os.makedirs(current_dir)
+            os.chdir(current_dir)
 
-        # Write settings file
-        settings_file = os.path.join(current_dir, "mc_settings.json")
-        start_config_path = os.path.join(
-            const_temp_run_dir, "conditions.%d" % mu_index, "final_state.json"
-        )
-        format_mc_settings(
-            superdupercell,
-            mu,
-            mu,
-            0,
-            temperature_values[0],
-            temp_final,
-            temperature_increment,
-            settings_file,
-            start_config_path,
-        )
+            # get const_t_mu index that matches mu
+            mu_index = find(const_t_mu, mu)
 
-        # Run MC cooling
-        user_command = "casm monte -s mc_settings.json > mc_results.out"
-        if scheduler == "slurm":
-            format_slurm_job(
-                jobname=run_name,
-                hours=20,
-                user_command=user_command,
-                output_dir=current_dir,
-                delete_submit_script=False,
+            # Write settings file
+            settings_file = os.path.join(current_dir, "mc_settings.json")
+            start_config_path = os.path.join(
+                const_temp_run_dir, "conditions.%d" % mu_index, "final_state.json"
             )
-            submit_slurm_job(current_dir)
-        elif scheduler == "pbs":
-            format_pbs_job(
-                jobname=run_name,
-                hours=20,
-                user_command=user_command,
-                output_dir=current_dir,
-                delete_submit_script=False,
+            format_mc_settings(
+                superdupercell,
+                mu,
+                mu,
+                0,
+                temperature_values[0],
+                temp_final,
+                temperature_increment,
+                settings_file,
+                start_config_path,
             )
-            submit_pbs_job(current_dir)
 
-        """
-        print("Submitting: ", end="")
-        print(current_dir)
-        os.system("casm monte -s mc_settings.json > mc_results.out &")
-        """
+            # Run MC cooling
+            if run_location == "local":
+                user_command = "casm monte -s mc_settings.json > mc_results.out"
+                format_slurm_job(
+                    jobname="cool_" + run_name,
+                    hours=20,
+                    user_command=user_command,
+                    output_dir=current_dir,
+                    delete_submit_script=False,
+                )
+                submit_slurm_job(current_dir)
+            elif run_location == "braid":
+                user_command = "casm monte -s mc_settings.json > mc_results.out"
+                format_pbs_job(
+                    jobname=run_name,
+                    hours=20,
+                    user_command=user_command,
+                    output_dir=current_dir,
+                    delete_submit_script=False,
+                )
+                submit_pbs_job(current_dir)
+            elif run_location == "pod":
+                print("In the works")
+            """
+            print("Submitting: ", end="")
+            print(current_dir)
+            os.system("casm monte -s mc_settings.json > mc_results.out &")
+            """
 
 
 def run_heating(
@@ -330,48 +406,50 @@ def run_heating(
 
         run_name = "mu_%.4f_%.4f_T_%d_%d" % (mu_value, mu_value, temp_init, temp_final)
         current_dir = os.path.join(mc_heating_dir, run_name)
-        os.makedirs(current_dir)
-        os.chdir(current_dir)
 
-        # Format settings file for this heating run
-        settings_file = os.path.join(current_dir, "mc_settings.json")
-        format_mc_settings(
-            superdupercell,
-            mu_value,
-            mu_value,
-            0,
-            temp_init,
-            temp_final,
-            temp_increment,
-            settings_file,
-            start_config_path=False,
-        )
+        if os.path.isfile(os.path.join(current_dir, "results.json")) == False:
+            os.makedirs(current_dir)
+            os.chdir(current_dir)
 
-        # Run MC heating
-        user_command = "casm monte -s mc_settings.json > mc_results.out"
-        if scheduler == "slurm":
-            format_slurm_job(
-                jobname=run_name,
-                hours=20,
-                user_command=user_command,
-                output_dir=current_dir,
-                delete_submit_script=False,
+            # Format settings file for this heating run
+            settings_file = os.path.join(current_dir, "mc_settings.json")
+            format_mc_settings(
+                superdupercell,
+                mu_value,
+                mu_value,
+                0,
+                temp_init,
+                temp_final,
+                temp_increment,
+                settings_file,
+                start_config_path=False,
             )
-            submit_slurm_job(current_dir)
-        elif scheduler == "pbs":
-            format_pbs_job(
-                jobname=run_name,
-                hours=20,
-                user_command=user_command,
-                output_dir=current_dir,
-                delete_submit_script=False,
-            )
-            submit_pbs_job(current_dir)
-        """
-        print("Submitting: ", end="")
-        print(current_dir)
-        os.system("casm monte -s mc_settings.json > mc_results.out &")
-        """
+
+            # Run MC heating
+            user_command = "casm monte -s mc_settings.json > mc_results.out"
+            if scheduler == "slurm":
+                format_slurm_job(
+                    jobname="heat_" + run_name,
+                    hours=20,
+                    user_command=user_command,
+                    output_dir=current_dir,
+                    delete_submit_script=False,
+                )
+                submit_slurm_job(current_dir)
+            elif scheduler == "pbs":
+                format_pbs_job(
+                    jobname=run_name,
+                    hours=20,
+                    user_command=user_command,
+                    output_dir=current_dir,
+                    delete_submit_script=False,
+                )
+                submit_pbs_job(current_dir)
+            """
+            print("Submitting: ", end="")
+            print(current_dir)
+            os.system("casm monte -s mc_settings.json > mc_results.out &")
+            """
 
 
 def plot_const_t_x_vs_mu(const_t_left, const_t_right):
@@ -405,7 +483,7 @@ def plot_heating_and_cooling(heating_run, cooling_run):
     return fig
 
 
-# def check_free_energy_crossing
+# TODO: Function to check that a free energy crossing occurrs
 
 
 def predict_free_energy_crossing(
@@ -543,29 +621,28 @@ def simulation_is_complete(mc_run_dir):
         simulation_status(bool): simulation is complete (True) or simulation is not complete (False)
     """
     # Check the number of conditions (mu, temp) that should be completed
+    # TODO: read the results.json file instead of the number of conditions directories to see if a simulaiton is complete.
     mc_settings_file = os.path.join(mc_run_dir, "mc_settings.json")
-    (
-        mu_values,
-        temperature_values,
-        superdupercell,
-    ) = read_mu_temperature_and_superdupercell(mc_settings_file)
-    number_of_conditions = len(mu_values) * len(temperature_values)
+    mu_values, temperature_values = read_mc_settings(mc_settings_file)
 
-    # Check that the final condition exists
-    final_conditions_path = os.path.join(
-        mc_run_dir, "conditions.%d" % number_of_conditions
-    )
-    simulation_status = None
-    if os.path.isdir(final_conditions_path):
-        simulation_status = True
+    target_t_length = temperature_values.shape[0]
+
+    if os.path.isfile(os.path.join(mc_run_dir, "results.json")):
+        mu, x, b, temperature, potential_energy = read_mc_results_file(
+            os.path.join(mc_run_dir, "results.json")
+        )
+        if temperature.shape[0] == target_t_length.shape:
+            simulation_status = True
+        else:
+            simulation_status = False
     else:
+        print("Cannot find %s" % os.path.join(mc_run_dir, "results.json"))
         simulation_status = False
-
     return simulation_status
 
 
-def plot_mc_results(mc_runs_directory, save_image=False, show_labels=False):
-    """plot_mc_results(mc_runs_directory, save_image_path=False, show_labels=False)
+def plot_t_vs_x_rainplot(mc_runs_directory, save_image=False, show_labels=False):
+    """plot_t_vs_x_rainplot(mc_runs_directory, save_image_path=False, show_labels=False)
 
     Generate a single (T vs composition) plot using all monte carlo runs in mc_runs_directory.
     Args:
@@ -577,18 +654,18 @@ def plot_mc_results(mc_runs_directory, save_image=False, show_labels=False):
         fig(matplotlib.pyplot figure object): 2D plot object. Can do fig.show() to display the plot.
     """
     labels = []
-    for subdir, dirs, files in os.walk(mc_runs_directory):
-        for filename in files:
-            if filename == "results.json":
-                datafile = os.path.join(subdir, "results.json")
-                with open(datafile) as f:
-                    data = json.load(f)
-                    f.close()
-                    current_mc = subdir.split("/")[-1]
-                    labels.append(current_mc)
-                    composition = data["<comp(a)>"]
-                    temperature = data["T"]
-                    plt.scatter(composition, temperature)
+    run_list = glob(os.path.join(mc_runs_directory, "mu*"))
+    for run in run_list:
+        results_file = os.path.join(run, "results.json")
+        if os.path.isfile(results_file):
+            with open(results_file) as f:
+                data = json.load(f)
+                f.close()
+                current_mc = run.split("/")[-1]
+                labels.append(current_mc)
+                composition = data["<comp(a)>"]
+                temperature = data["T"]
+                plt.scatter(composition, temperature)
 
     if show_labels:
         plt.legend(labels)

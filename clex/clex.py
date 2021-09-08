@@ -4,6 +4,8 @@ import numpy as np
 from scipy.spatial import ConvexHull
 from scipy.interpolate import griddata
 import matplotlib.pyplot as plt
+from sklearn.linear_model import LassoCV
+from sklearn.metrics import mean_squared_error
 import csv
 from glob import glob
 
@@ -26,10 +28,10 @@ def read_comp_and_energy_points(datafile):
     return points
 
 
-def checkhull(hull_simplices, test_coords):
+def checkhull(hull_vertex, test_coords):
     """Find if specified coordinates are above, on or below the specified lower convex hull.
     Args:
-        hull_simplices(ndarray): 2D array, shape nxm where n = # of points, m = # of composition dimensions + 1 energy as the last column.
+        hull_vertex(ndarray): 2D array, shape nxm where n = # of points, m = # of composition dimensions + 1 energy as the last column.
         test_coords(ndarray): 2D array, shape lxm where l = # of points to test, m = # of composition dimensions + 1 energy as the last column.
     Returns:
         tuple(
@@ -38,9 +40,11 @@ def checkhull(hull_simplices, test_coords):
             below_hull(ndarray): 2D array, shape r x m where m = # of composition dimensions + 1 energy as the last column.
         )
     """
+
+    # TODO: function that ony returns projected energy
     # Split data into composition and energy
-    hull_comps = hull_simplices[:, 0:-1]
-    hull_energies = hull_simplices[:, -1]
+    hull_comps = hull_vertex[:, 0:-1]
+    hull_energies = hull_vertex[:, -1]
     x_test = test_coords[:, 0:-1]
     y_test = test_coords[:, -1]
 
@@ -62,7 +66,8 @@ def checkhull(hull_simplices, test_coords):
     above_hull = np.array(above_hull)
     below_hull = np.array(below_hull)
     on_hull = np.array(on_hull)
-    return (above_hull, on_hull, below_hull)
+    # Just return hull distance
+    return np.array(hull_dist)
 
 
 def plot_clex_hull_data_1_x(
@@ -207,3 +212,34 @@ def plot_clex_hull_data_1_x(
 
     fig = plt.gcf()
     return fig
+
+
+def read_corr_and_formation_energy(datafile):
+    """
+    read_corr_and_formation_energy(datafile)
+
+    Reads and returns data from json containing correlation functions and formation energies.
+    Args:
+        datafile(str): Path to the json file containing the correlation functions and formation energies.
+    Returns:
+        tuple(
+            corr,                   (ndarray): Correlation functions: nxm matrix of correlation funcitons: each row corresponds to a configuration.
+            formation_energy,       (ndarray): Formation energies: vecrtor of n elements: one for each configuration.
+            scel_names              (ndarray): The name for a given configuration. Vector of n elements.
+        )
+    """
+    with open(datafile) as f:
+        data = json.load(f)
+
+    corr = []
+    formation_energy = []
+    scel_names = []
+    for entry in data:
+        corr.append(entry["corr"])
+        formation_energy.append(entry["formation_energy"])
+        scel_names.append(entry["name"])
+
+    corr = np.array(corr)
+    formation_energy = np.array(formation_energy)
+    scel_names = np.array(scel_names)
+    return (corr, formation_energy, scel_names)
