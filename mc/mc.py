@@ -331,7 +331,7 @@ def run_cooling_from_const_temperature(
     superdupercell = read_superdupercell(
         os.path.join(const_temp_run_dir, "mc_settings.json")
     )
-    # for each mu value, start a cooling run with the condition.# final state as the initial state (condition indexign starts at 0)
+    # for each mu value, start a cooling run with the condition.# final state as the initial state (condition indexing starts at 0)
     for mu in mu_values:
 
         # Set up run directory
@@ -344,12 +344,12 @@ def run_cooling_from_const_temperature(
 
             # get const_t_mu index that matches mu
             mu_index = find(const_t_mu, mu)
-
             # Write settings file
             settings_file = os.path.join(current_dir, "mc_settings.json")
             start_config_path = os.path.join(
                 const_temp_run_dir, "conditions.%d" % mu_index, "final_state.json"
             )
+
             format_mc_settings(
                 superdupercell,
                 mu,
@@ -483,22 +483,14 @@ def plot_heating_and_cooling(heating_run, cooling_run):
     return fig
 
 
-# TODO: Function to check that a free energy crossing occurrs
+# TODO: Function to check that a free energy crossing
 
 
-def predict_free_energy_crossing(
-    heating_integrated_free_energy,
-    temp_heating,
-    cooling_integrated_free_energy,
-    temp_cooling,
-):
+def predict_free_energy_crossing(heating_run, cooling_run):
     """Function to find crossing point between two (energy vs T) curves.
     Args:
-        heating_integrated_free_energy(list): Vector of integrated free energy values from heating monte carlo simulation.
-        temp_heating(list): Vector of temperature values (K) from the heating monte carlo simulation.
-        cooling_integrated_free_energy(list): Vector of integrated free energy values from cooling monte carlo simulation.
-        temp_cooling(list): Vector of temperature values (K) from the cooling monte carlo simulation.
-
+        heating_run(djlib.mc.heating_run):  Heating run object defined in djlib.mc
+        cooling_run(djlib.mc.cooling_run): Cooling run object defined in djlib.mc
     Returns:
         tuple(
             t_intersect_predict
@@ -508,41 +500,41 @@ def predict_free_energy_crossing(
     """
     # Check that lengths of all vectors match and that temp_heating == temp_cooling (i.e., they're not the reverse of each other)
     if (
-        len(heating_integrated_free_energy)
-        == len(temp_heating)
-        == len(cooling_integrated_free_energy)
-        == len(temp_cooling)
+        heating_run.integ_grand_canonical.shape[0]
+        == heating_run.t.shape[0]
+        == cooling_run.integ_grand_canonical.shape[0]
+        == cooling_run.t.shape[0]
     ):
 
         find_intersection = False
-        if temp_heating.all() == temp_cooling.all():
+        if np.allclose(heating_run.t, cooling_run.t):
             find_intersection = True
-        elif temp_heating != temp_cooling:
+        else:
             # If the temperature axes arent the same, try swapping the order of temp_cooling and cooling_integrated_free_energy.
-            temp_cooling = np.flip(np.asarray(temp_heating))
-            cooling_integrated_free_energy = np.flip(
-                np.asarray(cooling_integrated_free_energy)
+            cooling_run.t = np.flip(cooling_run.t)
+            cooling_run.integ_grand_canonical = np.flip(
+                cooling_run.integ_grand_canonical
             )
 
             # If the temperature axes still aren't the same, cancel the function.
-            if temp_heating == temp_cooling:
+            if np.allclose(heating_run.t, cooling_run.t):
                 find_intersection = True
-            elif temp_heating != temp_cooling:
+            else:
                 print(
-                    "temp_heating and temp_cooling are the same length but do not match. See printout below:\ntemp_heating  temp_cooling"
+                    "Heating and cooling run temperature vectors are the same length but do not match. See printout below:\ntemp_heating  temp_cooling"
                 )
-                for idx, value in enumerate(temp_heating):
-                    print("%.3f  %.3f" % temp_heating[idx], temp_cooling[idx])
+                for idx, value in enumerate(heating_run.t):
+                    print("%.3f  %.3f" % heating_run.t[idx], cooling_run.t[idx])
 
         if find_intersection:
             # TODO: Check that there isn't more than one intersection (complete overlap) or no intersection.
 
             # fit spline to each dataset, calculate intersection
             interp_heating = scipy.interpolate.InterpolatedUnivariateSpline(
-                temp_heating, heating_integrated_free_energy
+                heating_run.t, heating_run.integ_grand_canonical
             )
             interp_cooling = scipy.interpolate.InterpolatedUnivariateSpline(
-                temp_cooling, cooling_integrated_free_energy
+                cooling_run.t, cooling_run.integ_grand_canonical
             )
 
             # define a difference function to calculate the root
@@ -552,13 +544,16 @@ def predict_free_energy_crossing(
             # Provide a composition x0 as a guess for the root finder
             # This will break if there are multiple identical minimum values
             t0_index = np.argmin(
-                abs(heating_integrated_free_energy - cooling_integrated_free_energy)
+                abs(
+                    heating_run.integ_grand_canonical
+                    - cooling_run.integ_grand_canonical
+                )
             )
-            t0_guess = temp_heating[t0_index]
+            t0_guess = heating_run.t[t0_index]
 
             # Calculate the intersection point
-            t_intersect_predict = scipy.optimize.fsolve(difference, x0=x0_guess)
-            energy_intersect_predict = interp_heating(x_intersect_predict)
+            t_intersect_predict = scipy.optimize.fsolve(difference, x0=t0_guess)
+            energy_intersect_predict = interp_heating(t_intersect_predict)
 
             return (t_intersect_predict, energy_intersect_predict)
 
@@ -578,14 +573,14 @@ def predict_free_energy_crossing(
         )
 
 
-def find_crossing_compositions(
-    integrated_energies, temperature, x, t_intersect_predict, energy_intersect_predict
+def find_crossing_composition(
+    temperature, integrated_energies, t_intersect_predict, energy_intersect_predict
 ):
     """Given an interpolated point in (energy vs temperature) space, find the closest existing (energy, temperature) and return the corresponding composition x and corresponding temperature.
     Args:
-        integrated_energies(list): Vector of integrated energy values.
-        temperature(list): Vector of temperature values (K).
-        x(list): Vector of composition values.
+        integrated_energies(ndarray): Vector of integrated energy values.
+        temperature(ndarray): Vector of temperature values (K).
+        x(ndarray): Vector of composition values.
         t_intersect_predict(float): Interpolated prediction of the free energy crossing temperature between a heating and cooling grand canonical monte carlo simulation.
         energy_intersect_predict(float): Interpolated prediction of the free energy at the crossing temperature between a heating and cooling grand canonical monte carlo simulation.
 
@@ -604,7 +599,7 @@ def find_crossing_compositions(
 
     difference = temperature_and_energy - prediction_point
 
-    distance = np.sum(np.abs(temperature_and_energy) ** 2, axis=-1) ** (1 / 2)
+    distance = np.sum(np.abs(difference) ** 2, axis=-1) ** (1 / 2)
     closest_point_index = np.argmin(distance)
 
     x_at_crossing = x[closest_point_index]
