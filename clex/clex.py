@@ -1,10 +1,8 @@
-from inspect import formatannotation
 import json
 import os
-from threading import current_thread
+
+# from threading import current_thread
 import numpy as np
-from numpy.core.defchararray import endswith
-from numpy.lib.npyio import save
 from scipy.spatial import ConvexHull
 from scipy.interpolate import griddata
 import matplotlib.pyplot as plt
@@ -33,6 +31,51 @@ def read_comp_and_energy_points(datafile):
     ]
     points = np.array(points)
     return points
+
+
+def read_corr_and_formation_energy(datafile):
+    """
+    read_corr_and_formation_energy(datafile)
+
+    Reads and returns data from json containing correlation functions and formation energies.
+    Args:
+        datafile(str): Path to the json file containing the correlation functions and formation energies.
+    Returns:
+        tuple(
+            corr,                   (ndarray): Correlation functions: nxm matrix of correlation funcitons: each row corresponds to a configuration.
+            formation_energy,       (ndarray): Formation energies: vecrtor of n elements: one for each configuration.
+            scel_names              (ndarray): The name for a given configuration. Vector of n elements.
+        )
+    """
+    with open(datafile) as f:
+        data = json.load(f)
+
+    corr = []
+    formation_energy = []
+    scel_names = []
+    for entry in data:
+        corr.append(np.array(entry["corr"]).flatten())
+        formation_energy.append(entry["formation_energy"])
+        scel_names.append(entry["name"])
+
+    corr = np.array(corr)
+    formation_energy = np.array(formation_energy)
+    scel_names = np.array(scel_names)
+    return (corr, formation_energy, scel_names)
+
+
+def lower_hull(hull, energy_index=-1):
+    """Takes a hull, returns only the lower hull.
+    Args:
+        hull (scipy.spatial.ConvexHull() object): Object output from scipy describing a convex hull.
+        energy_index (int): Column index corresponding to the energy coordinate. Convention is the index of the last column.
+    Returns:
+        lower_hull_simplices (list): Each element is a list of indices- each index corresponds to one of the points in the hull.points array.
+        lower_hull_vertices (list): Each element is an index of a point in the original hull.points array. (points aren't ordered; sort before plotting.)
+    """
+    lower_hull_simplices = hull.simplices[hull.equations[:, energy_index] < 0]
+    lower_hull_vertices = np.unique(np.ravel(lower_hull_simplices))
+    return (lower_hull_simplices, lower_hull_vertices)
 
 
 def checkhull(hull_vertex, test_coords):
@@ -75,6 +118,110 @@ def checkhull(hull_vertex, test_coords):
     on_hull = np.array(on_hull)
     # Just return hull distance
     return np.array(hull_dist)
+
+
+def run_lassocv(corr, formation_energy):
+    reg = LassoCV(fit_intercept=False, n_jobs=4).fit(corr, formation_energy)
+    eci = reg.coef_
+    return eci
+
+
+def generate_rand_eci_vec(num_eci, stdev, normalization):
+    eci_vec = np.random.normal(scale=stdev, size=num_eci)
+    eci_vec = (eci_vec / np.linalg.norm(eci_vec)) * normalization
+    return eci_vec
+
+
+def metropolis_hastings_ratio(current_eci, proposed_eci, corr, formation_energy):
+
+    left_term = (
+        np.linalg.norm(proposed_eci, ord=1) / np.linalg.norm(current_eci, ord=1)
+    ) ** (-1 * current_eci.shape[0])
+
+    current_energy = np.matmul(corr, current_eci)
+    proposed_energy = np.matmul(corr, proposed_eci)
+    right_term_numerator = np.linalg.norm(formation_energy - proposed_energy)
+    right_term_denom = np.linalg.norm(formation_energy - current_energy)
+
+    right_term = (right_term_numerator / right_term_denom) ** (
+        -1 * formation_energy.shape[0]
+    )
+
+    mh_ratio = left_term * right_term
+    if mh_ratio > 1:
+        mh_ratio = 1
+    return mh_ratio
+
+
+def run_eci_monte_carlo(
+    corr_and_energy_file, eci_walk_step_size, iterations, output_dir
+):
+
+    corr, formation_energy, names = read_corr_and_formation_energy(corr_and_energy_file)
+
+    accept = None
+    # Run lassoCV to get expected eci values
+    lasso_eci = run_lassocv(corr, formation_energy)
+
+    acceptance = []
+    sampled_eci = []
+    proposed_ground_states = []
+
+    current_eci = lasso_eci
+    sampled_eci.append(current_eci)
+    for i in tqdm(range(iterations), desc="Monte Carlo Progress"):
+        # for i in range(iterations):
+        eci_random_vec = generate_rand_eci_vec(
+            num_eci=lasso_eci.shape[0], stdev=1, normalization=eci_walk_step_size
+        )
+        proposed_eci = current_eci + eci_random_vec
+
+        mh_ratio = metropolis_hastings_ratio(
+            current_eci, proposed_eci, corr, formation_energy
+        )
+
+        acceptance_comparison = np.random.uniform()
+        if mh_ratio >= acceptance_comparison:
+            acceptance.append(True)
+            current_eci = proposed_eci
+            sampled_eci.append(proposed_eci)
+        else:
+            acceptance.append(False)
+            sampled_eci.append(current_eci)
+
+    acceptance = np.array(acceptance)
+    sampled_eci = np.array(sampled_eci)
+    acceptance_prob = np.count_nonzero(acceptance) / acceptance.shape[0]
+    print("Acceptance Probability is: %f" % acceptance_prob)
+
+    results = {
+        "sampled_eci": sampled_eci,
+        "acceptance": acceptance,
+        "acceptance_prob": acceptance_prob,
+    }
+    # savefile = os.path.join(output_dir, "eci_mc_results.json")
+    # print("Saving results to %s" % savefile)
+    # with open(savefile, "w") as f:
+    #    json.dump(results, f, indent="")
+    return results
+
+
+def plot_eci_hist(eci_data):
+    plt.hist(x=eci_data, bins="auto", color="xkcd:crimson", alpha=0.7, rwidth=0.85)
+
+    plt.xlabel("ECI value (eV)", fontsize=18)
+    plt.ylabel("Count", fontsize=18)
+    # plt.show()
+    fig = plt.gcf()
+    return fig
+
+
+def plot_eci_covariance(eci_data_1, eci_data_2):
+    plt.scatter(eci_data_1, eci_data_2, color="xkcd:crimson")
+    plt.xlabel("ECI 1 (eV)", fontsize=18)
+    plt.ylabel("ECI 2 (eV)", fontsize=18)
+    fig = plt.gcf()
+    return fig
 
 
 def plot_clex_hull_data_1_x(
@@ -217,141 +364,5 @@ def plot_clex_hull_data_1_x(
 
     plt.legend(labels, loc="lower left", fontsize=10)
 
-    fig = plt.gcf()
-    return fig
-
-
-def read_corr_and_formation_energy(datafile):
-    """
-    read_corr_and_formation_energy(datafile)
-
-    Reads and returns data from json containing correlation functions and formation energies.
-    Args:
-        datafile(str): Path to the json file containing the correlation functions and formation energies.
-    Returns:
-        tuple(
-            corr,                   (ndarray): Correlation functions: nxm matrix of correlation funcitons: each row corresponds to a configuration.
-            formation_energy,       (ndarray): Formation energies: vecrtor of n elements: one for each configuration.
-            scel_names              (ndarray): The name for a given configuration. Vector of n elements.
-        )
-    """
-    with open(datafile) as f:
-        data = json.load(f)
-
-    corr = []
-    formation_energy = []
-    scel_names = []
-    for entry in data:
-        corr.append(np.array(entry["corr"]).flatten())
-        formation_energy.append(entry["formation_energy"])
-        scel_names.append(entry["name"])
-
-    corr = np.array(corr)
-    formation_energy = np.array(formation_energy)
-    scel_names = np.array(scel_names)
-    return (corr, formation_energy, scel_names)
-
-
-def run_lassocv(corr, formation_energy):
-    reg = LassoCV(fit_intercept=False, max_iter=10000, n_jobs=4).fit(
-        corr, formation_energy
-    )
-    eci = reg.coef_
-    return eci
-
-
-def generate_rand_eci_vec(num_eci, stdev, normalization):
-    eci_vec = np.random.normal(scale=stdev, size=num_eci)
-    eci_vec = (eci_vec / np.linalg.norm(eci_vec)) * normalization
-    return eci_vec
-
-
-def metropolis_hastings_ratio(current_eci, proposed_eci, corr, formation_energy):
-
-    left_term = (
-        np.linalg.norm(proposed_eci, ord=1) / np.linalg.norm(current_eci, ord=1)
-    ) ** (-1 * current_eci.shape[0])
-
-    current_energy = np.matmul(corr, current_eci)
-    proposed_energy = np.matmul(corr, proposed_eci)
-    right_term_numerator = np.linalg.norm(formation_energy - proposed_energy)
-    right_term_denom = np.linalg.norm(formation_energy - current_energy)
-
-    right_term = (right_term_numerator / right_term_denom) ** (
-        -1 * formation_energy.shape[0]
-    )
-
-    mh_ratio = left_term * right_term
-    if mh_ratio > 1:
-        mh_ratio = 1
-    return mh_ratio
-
-
-def run_eci_monte_carlo(
-    corr_and_energy_file, eci_walk_step_size, iterations, output_dir
-):
-
-    corr, formation_energy, names = read_corr_and_formation_energy(corr_and_energy_file)
-
-    accept = None
-    # Run lassoCV to get expected eci values
-    lasso_eci = run_lassocv(corr, formation_energy)
-
-    acceptance = []
-    sampled_eci = []
-    proposed_ground_states = []
-
-    current_eci = lasso_eci
-    sampled_eci.append(current_eci)
-    for i in tqdm(range(iterations), desc="Monte Carlo Progress"):
-        eci_random_vec = generate_rand_eci_vec(
-            num_eci=lasso_eci.shape[0], stdev=1, normalization=eci_walk_step_size
-        )
-        proposed_eci = current_eci + eci_random_vec
-
-        mh_ratio = metropolis_hastings_ratio(
-            current_eci, proposed_eci, corr, formation_energy
-        )
-
-        acceptance_comparison = np.random.uniform()
-        if mh_ratio >= acceptance_comparison:
-            acceptance.append(True)
-            current_eci = proposed_eci
-            sampled_eci.append(proposed_eci)
-        else:
-            acceptance.append(False)
-            sampled_eci.append(current_eci)
-
-    acceptance = np.array(acceptance)
-    sampled_eci = np.array(sampled_eci)
-    acceptance_prob = np.count_nonzero(acceptance) / acceptance.shape[0]
-    print("Acceptance Probability is: %f" % acceptance_prob)
-
-    results = {
-        "sampled_eci": sampled_eci,
-        "acceptance": acceptance,
-        "acceptance_prob": acceptance_prob,
-    }
-    # savefile = os.path.join(output_dir, "eci_mc_results.json")
-    # print("Saving results to %s" % savefile)
-    # with open(savefile, "w") as f:
-    #    json.dump(results, f, indent="")
-    return results
-
-
-def plot_eci_hist(eci_data):
-    plt.hist(x=eci_data, bins="auto", color="xkcd:crimson", alpha=0.7, rwidth=0.85)
-
-    plt.xlabel("ECI value (eV)", fontsize=18)
-    plt.ylabel("Count", fontsize=18)
-    # plt.show()
-    fig = plt.gcf()
-    return fig
-
-
-def plot_eci_covariance(eci_data_1, eci_data_2):
-    plt.scatter(eci_data_1, eci_data_2, color="xkcd:crimson")
-    plt.xlabel("ECI 1 (eV)", fontsize=18)
-    plt.ylabel("ECI 2 (eV)", fontsize=18)
     fig = plt.gcf()
     return fig
