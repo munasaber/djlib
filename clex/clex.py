@@ -253,7 +253,9 @@ def read_corr_and_formation_energy(datafile):
 
 
 def run_lassocv(corr, formation_energy):
-    reg = LassoCV(fit_intercept=False, n_jobs=4).fit(corr, formation_energy)
+    reg = LassoCV(fit_intercept=False, max_iter=10000, n_jobs=4).fit(
+        corr, formation_energy
+    )
     eci = reg.coef_
     return eci
 
@@ -326,8 +328,8 @@ def run_eci_monte_carlo(
     print("Acceptance Probability is: %f" % acceptance_prob)
 
     results = {
-        "sampled_eci": sampled_eci.tolist(),
-        "acceptance": acceptance.tolist(),
+        "sampled_eci": sampled_eci,
+        "acceptance": acceptance,
         "acceptance_prob": acceptance_prob,
     }
     # savefile = os.path.join(output_dir, "eci_mc_results.json")
@@ -338,10 +340,18 @@ def run_eci_monte_carlo(
 
 
 def plot_eci_hist(eci_data):
-    plt.hist(x=eci_data, bins="auto", color="xkcd:crimson", alpha=0.5, rwidth=0.85)
+    plt.hist(x=eci_data, bins="auto", color="xkcd:crimson", alpha=0.7, rwidth=0.85)
 
     plt.xlabel("ECI value (eV)", fontsize=18)
     plt.ylabel("Count", fontsize=18)
     # plt.show()
+    fig = plt.gcf()
+    return fig
+
+
+def plot_eci_covariance(eci_data_1, eci_data_2):
+    plt.scatter(eci_data_1, eci_data_2, color="xkcd:crimson")
+    plt.xlabel("ECI 1 (eV)", fontsize=18)
+    plt.ylabel("ECI 2 (eV)", fontsize=18)
     fig = plt.gcf()
     return fig
