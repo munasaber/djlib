@@ -1,4 +1,14 @@
 import numpy as np
+import os
+import pathlib
+import math as m
+
+libpath = pathlib.Path(__file__).parent.resolve()
+
+
+def get_dj_dir():
+    libpath = pathlib.Path(__file__).parent.resolve()
+    return libpath
 
 
 def column_sort(matrix, column_index):
