@@ -636,7 +636,7 @@ def simulation_is_complete(mc_run_dir):
     return simulation_status
 
 
-def plot_rain_plots(mc_runs_directory, save_image=False, show_labels=False):
+def plot_t_vs_x_rainplot(mc_runs_directory, save_image=False, show_labels=False):
     """plot_rain_plots(mc_runs_directory, save_image_path=False, show_labels=False)
 
     Generate a single (T vs composition) plot using all monte carlo runs in mc_runs_directory.
