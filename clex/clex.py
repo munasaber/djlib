@@ -1,7 +1,5 @@
 import json
 import os
-
-# from threading import current_thread
 import numpy as np
 from scipy.spatial import ConvexHull
 from scipy.interpolate import griddata
@@ -33,7 +31,7 @@ def read_comp_and_energy_points(datafile):
     return points
 
 
-def read_corr_and_formation_energy(datafile):
+def read_corr_comp_formation(datafile):
     """
     read_corr_and_formation_energy(datafile)
 
@@ -53,32 +51,54 @@ def read_corr_and_formation_energy(datafile):
     corr = []
     formation_energy = []
     scel_names = []
+    comp = []
+    # TODO: add flexibility for absence of some keys in the json file
     for entry in data:
-        corr.append(np.array(entry["corr"]).flatten())
-        formation_energy.append(entry["formation_energy"])
-        scel_names.append(entry["name"])
-
+        if "corr" in entry.keys():
+            corr.append(np.array(entry["corr"]).flatten())
+        if "formation_energy" in entry.keys():
+            formation_energy.append(entry["formation_energy"])
+        if "name" in entry.keys():
+            scel_names.append(entry["name"])
+        if "comp" in entry.keys():
+            comp.append(entry["comp"][0])  # Assumes a binary
     corr = np.array(corr)
     formation_energy = np.array(formation_energy)
     scel_names = np.array(scel_names)
-    return (corr, formation_energy, scel_names)
+    comp = np.array(comp)
+    results = {
+        "corr": corr,
+        "formation_energy": formation_energy,
+        "names": scel_names,
+        "comp": comp,
+    }
+    return results
 
 
-def lower_hull(hull, energy_index=-1):
-    """Takes a hull, returns only the lower hull.
-    Args:
-        hull (scipy.spatial.ConvexHull() object): Object output from scipy describing a convex hull.
-        energy_index (int): Column index corresponding to the energy coordinate. Convention is the index of the last column.
-    Returns:
-        lower_hull_simplices (list): Each element is a list of indices- each index corresponds to one of the points in the hull.points array.
-        lower_hull_vertices (list): Each element is an index of a point in the original hull.points array. (points aren't ordered; sort before plotting.)
+def lower_hull(hull, energy_index):
+    """Returns the lower convex hull (with respect to energy direction) given  complete convex hull.
+    Parameters
+    ----------
+        hull : scipy.spatial.ConvexHull
+            Complete convex hull object.
+        energy_index : int
+            index of energy dimension of points within 'hull'.
+    Returns
+    -------
+        lower_hull_simplices : numpy.ndarray of ints, shape (nfacets, ndim)
+            indices of the facets forming the lower convex hull.
+
+        lower_hull_vertices : numpy.ndarray of ints, shape (nvertices,)
+            Indices of the vertices forming the vertices of the lower convex hull.
     """
+    # Note: energy_index is used on the "hull.equations" output, which has a scalar offset.
+    # (If your energy is the last column of "points", either use the direct index, or use "-2". Using "-1" as energy_index will not give the proper lower hull.)
     lower_hull_simplices = hull.simplices[hull.equations[:, energy_index] < 0]
     lower_hull_vertices = np.unique(np.ravel(lower_hull_simplices))
     return (lower_hull_simplices, lower_hull_vertices)
 
 
-def checkhull(hull_vertex, test_coords):
+def checkhull(hull_comps, hull_energies, test_comp, test_energy):
     """Find if specified coordinates are above, on or below the specified lower convex hull.
     Args:
         hull_vertex(ndarray): 2D array, shape nxm where n = # of points, m = # of composition dimensions + 1 energy as the last column.
@@ -90,34 +110,15 @@ def checkhull(hull_vertex, test_coords):
             below_hull(ndarray): 2D array, shape r x m where m = # of composition dimensions + 1 energy as the last column.
         )
     """
-
-    # TODO: function that ony returns projected energy
-    # Split data into composition and energy
-    hull_comps = hull_vertex[:, 0:-1]
-    hull_energies = hull_vertex[:, -1]
-    x_test = test_coords[:, 0:-1]
-    y_test = test_coords[:, -1]
-
+    # Need to reshape to column vector to work properly.
+    # Test comp should also be a column vector.
+    test_energy = np.reshape(test_energy, (-1, 1))
     # Fit linear grid
-    interp_hull = griddata(hull_comps, hull_energies, x_test, method="linear")
+    interp_hull = griddata(hull_comps, hull_energies, test_comp, method="linear")
 
-    # Check if the y_test points are above or below the hull
-    hull_dist = y_test - interp_hull
-    above_hull = []
-    below_hull = []
-    on_hull = []
-    for i in range(x_test.shape[0]):
-        if np.isclose(hull_dist[i], 0, 1e-14):
-            on_hull.append([x_test[i], y_test[i]])
-        elif hull_dist[i] > 0:
-            above_hull.append([x_test[i], y_test[i]])
-        elif hull_dist[i] < 0:
-            below_hull.append([x_test[i], y_test[i]])
-    above_hull = np.array(above_hull)
-    below_hull = np.array(below_hull)
-    on_hull = np.array(on_hull)
-    # Just return hull distance
-    return np.array(hull_dist)
+    # Check if the test_energy points are above or below the hull
+    hull_dist = test_energy - interp_hull
+    return np.ravel(np.array(hull_dist))
 
 
 def run_lassocv(corr, formation_energy):
@@ -132,14 +133,14 @@ def generate_rand_eci_vec(num_eci, stdev, normalization):
     return eci_vec
 
 
-def metropolis_hastings_ratio(current_eci, proposed_eci, corr, formation_energy):
+def metropolis_hastings_ratio(
+    current_eci, proposed_eci, current_energy, proposed_energy, formation_energy
+):
 
     left_term = (
         np.linalg.norm(proposed_eci, ord=1) / np.linalg.norm(current_eci, ord=1)
     ) ** (-1 * current_eci.shape[0])
 
-    current_energy = np.matmul(corr, current_eci)
-    proposed_energy = np.matmul(corr, proposed_eci)
     right_term_numerator = np.linalg.norm(formation_energy - proposed_energy)
     right_term_denom = np.linalg.norm(formation_energy - current_energy)
 
@@ -154,40 +155,110 @@ def metropolis_hastings_ratio(current_eci, proposed_eci, corr, formation_energy)
 
 
 def run_eci_monte_carlo(
-    corr_and_energy_file, eci_walk_step_size, iterations, output_dir
+    corr_and_energy_file, eci_walk_step_size, iterations, sample_frequency, output_dir
 ):
+    # Read data from casm query json output
+    data = read_corr_comp_formation(corr_and_energy_file)
+    corr = data["corr"]
+    formation_energy = data["formation_energy"]
+    comp = data["comp"]
 
-    corr, formation_energy, names = read_corr_and_formation_energy(corr_and_energy_file)
+    # downsampling only the calculated configs:
+    downsample_selection = formation_energy != {}
+    corr_calculated = corr[downsample_selection]
+    formation_energy_calculated = formation_energy[downsample_selection]
+    comp_calculated = comp[downsample_selection]
 
-    accept = None
+    # Find and store the DFT hull:
+    points = np.zeros(
+        (formation_energy_calculated.shape[0], comp_calculated.shape[1] + 1)
+    )
+    points[:, 0:-1] = comp_calculated
+    points[:, -1] = formation_energy_calculated
+    hull = ConvexHull(points)
+    dft_hull_simplices, dft_hull_vertices = lower_hull(hull, energy_index=-2)
+    dft_hull_vertices = np.array(hull.points[dft_hull_vertices])
+
     # Run lassoCV to get expected eci values
-    lasso_eci = run_lassocv(corr, formation_energy)
+    lasso_eci = run_lassocv(corr_calculated, formation_energy_calculated)
 
+    # Instantiate lists
     acceptance = []
+    rms = []
     sampled_eci = []
-    proposed_ground_states = []
+    proposed_ground_states_indices = np.array([])
 
+    # Perform MH Monte Carlo
     current_eci = lasso_eci
     sampled_eci.append(current_eci)
     for i in tqdm(range(iterations), desc="Monte Carlo Progress"):
-        # for i in range(iterations):
         eci_random_vec = generate_rand_eci_vec(
             num_eci=lasso_eci.shape[0], stdev=1, normalization=eci_walk_step_size
         )
         proposed_eci = current_eci + eci_random_vec
 
+        current_energy = np.matmul(corr_calculated, current_eci)
+        proposed_energy = np.matmul(corr_calculated, proposed_eci)
+
         mh_ratio = metropolis_hastings_ratio(
-            current_eci, proposed_eci, corr, formation_energy
+            current_eci,
+            proposed_eci,
+            current_energy,
+            proposed_energy,
+            formation_energy_calculated,
         )
 
         acceptance_comparison = np.random.uniform()
         if mh_ratio >= acceptance_comparison:
             acceptance.append(True)
             current_eci = proposed_eci
-            sampled_eci.append(proposed_eci)
+            energy_for_error = proposed_energy
         else:
             acceptance.append(False)
+            energy_for_error = current_energy
+
+        # Calculate and append rms:
+        mse = mean_squared_error(formation_energy_calculated, energy_for_error)
+        rms.append(mse ** (1 / 2))
+
+        # Compare to DFT hull
+        full_predicted_energy = np.matmul(corr, current_eci)
+        hulldist = checkhull(
+            dft_hull_vertices[:, 0:-1],
+            dft_hull_vertices[:, -1],
+            comp,
+            full_predicted_energy,
+        )
+        """
+        print("\nHull dist shape is ")
+        print(hulldist.shape)
+        print("\ncomp shape is")
+        print(comp.shape)
+        print("\npredicted energy shape")
+        print(full_predicted_energy.shape)
+        print("\nhull_vertices comp shape")
+        print(dft_hull_vertices[:, 0:-1].shape)
+        print("\ndft hull vertices energy shape")
+        print(dft_hull_vertices[:, -1].shape)
+        """
+        below_hull_selection = hulldist < 0
+        below_hull_indices = np.ravel(np.array(below_hull_selection.nonzero()))
+
+        """
+        print("\nbelow_hull selection shape")
+        print(below_hull_selection.shape)
+        print("\nbelow hull indices shape")
+        print(below_hull_indices.shape)
+        print("\nbelow hull indices")
+        print(below_hull_indices)
+        """
+
+        # Only record a subset of all monte carlo steps to avoid excessive correlation
+        if i % sample_frequency == 0:
             sampled_eci.append(current_eci)
+            proposed_ground_states_indices = np.concatenate(
+                (proposed_ground_states_indices, below_hull_indices)
+            )
 
     acceptance = np.array(acceptance)
     sampled_eci = np.array(sampled_eci)
@@ -198,6 +269,9 @@ def run_eci_monte_carlo(
         "sampled_eci": sampled_eci,
         "acceptance": acceptance,
         "acceptance_prob": acceptance_prob,
+        "proposed_ground_states_indices": proposed_ground_states_indices,
+        "rms": rms,
+        "names": data["names"],
     }
     # savefile = os.path.join(output_dir, "eci_mc_results.json")
     # print("Saving results to %s" % savefile)
