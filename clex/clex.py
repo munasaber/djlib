@@ -229,29 +229,9 @@ def run_eci_monte_carlo(
             comp,
             full_predicted_energy,
         )
-        """
-        print("\nHull dist shape is ")
-        print(hulldist.shape)
-        print("\ncomp shape is")
-        print(comp.shape)
-        print("\npredicted energy shape")
-        print(full_predicted_energy.shape)
-        print("\nhull_vertices comp shape")
-        print(dft_hull_vertices[:, 0:-1].shape)
-        print("\ndft hull vertices energy shape")
-        print(dft_hull_vertices[:, -1].shape)
-        """
+
         below_hull_selection = hulldist < 0
         below_hull_indices = np.ravel(np.array(below_hull_selection.nonzero()))
-
-        """
-        print("\nbelow_hull selection shape")
-        print(below_hull_selection.shape)
-        print("\nbelow hull indices shape")
-        print(below_hull_indices.shape)
-        print("\nbelow hull indices")
-        print(below_hull_indices)
-        """
 
         # Only record a subset of all monte carlo steps to avoid excessive correlation
         if i % sample_frequency == 0:
