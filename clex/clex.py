@@ -155,15 +155,50 @@ def metropolis_hastings_ratio(
 
 
 def run_eci_monte_carlo(
-    corr_and_energy_file, eci_walk_step_size, iterations, sample_frequency, output_dir
+    corr_comp_energy_file,
+    eci_walk_step_size,
+    iterations,
+    sample_frequency,
+    output_dir=False,
 ):
+    """Samples ECI space according to Metropolis Monte Carlo, recording ECI values and most likely ground state configurations.
+
+    Parameters
+    ----------
+    corr_comp_energy_file : str
+        Path to json casm query output file (output of: "casm query -k corr comp formation_energy -j -o filename.json")
+    eci_walk_step_size : int
+        Magnitude of the random step vector in ECI space. (Try for a value that gives an acceptance rate of ~ 0.24)
+    iterations : int
+        Number of steps to perform in the monte carlo algorithm.
+    sample_frequency : int
+        The number of steps that pass before ECI and proposed ground states are recorded.
+    output_dir : str
+        Path to the directory where monte carlo results should be written. By default, results are not written to a file.
+
+    Returns
+    -------
+    results : dict
+        sampled_eci : numpy.ndarray
+            Matrix of recorded ECI. M rows of sampled ECI, where M = (Number of iterations / sample frequency). Each row is a set of N ECI, where N is the number of correlations.
+        acceptance : numpy.ndarray
+            Vector of booleans dictating whether a step was accepted (True) or rejected (False)
+        acceptance_prob : float
+            Number of accepted steps divided by number of total steps.
+        proposed_ground_state_indices : numpy.ndarray
+            Vector of indices denoting configurations which appeared below the DFT hull across all of the Monte Carlo steps.
+        rms : numpy.ndarray
+            Root Mean Squared Error of the calculated energy vs DFT energy for each Monte Carlo step.
+        names : list
+            List of configuraton names used in the Monte Carlo calculations.
+    """
     # Read data from casm query json output
-    data = read_corr_comp_formation(corr_and_energy_file)
+    data = read_corr_comp_formation(corr_comp_energy_file)
     corr = data["corr"]
     formation_energy = data["formation_energy"]
     comp = data["comp"]
 
-    # Different descriptors for un-calculated formation energy (1.1.2->{}, 1.2-> null (i.e. None))
+    # Dealing with compatibility: Different descriptors for un-calculated formation energy (1.1.2->{}, 1.2-> null (i.e. None))
     uncalculated_energy_descriptor = None
     if {} in formation_energy:
         uncalculated_energy_descriptor = {}
@@ -248,7 +283,6 @@ def run_eci_monte_carlo(
     acceptance = np.array(acceptance)
     sampled_eci = np.array(sampled_eci)
     acceptance_prob = np.count_nonzero(acceptance) / acceptance.shape[0]
-    print("Acceptance Probability is: %f" % acceptance_prob)
 
     results = {
         "sampled_eci": sampled_eci,
@@ -258,10 +292,11 @@ def run_eci_monte_carlo(
         "rms": rms,
         "names": data["names"],
     }
-    # savefile = os.path.join(output_dir, "eci_mc_results.json")
-    # print("Saving results to %s" % savefile)
-    # with open(savefile, "w") as f:
-    #    json.dump(results, f, indent="")
+    if output_dir:
+        savefile = os.path.join(output_dir, "eci_mc_results.json")
+        print("Saving results to %s" % savefile)
+        with open(savefile, "w") as f:
+            json.dump(results, f, indent="")
     return results
 
 
