@@ -163,8 +163,13 @@ def run_eci_monte_carlo(
     formation_energy = data["formation_energy"]
     comp = data["comp"]
 
+    # Different descriptors for un-calculated formation energy (1.1.2->{}, 1.2-> null (i.e. None))
+    uncalculated_energy_descriptor = None
+    if {} in formation_energy:
+        uncalculated_energy_descriptor = {}
+
     # downsampling only the calculated configs:
-    downsample_selection = formation_energy != {}
+    downsample_selection = formation_energy != uncalculated_energy_descriptor
     corr_calculated = corr[downsample_selection]
     formation_energy_calculated = formation_energy[downsample_selection]
     comp_calculated = comp[downsample_selection]
