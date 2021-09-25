@@ -9,6 +9,8 @@ from sklearn.metrics import mean_squared_error
 import csv
 from glob import glob
 from tqdm import tqdm
+import pickle
+
 
 # import cuml
 
@@ -293,10 +295,11 @@ def run_eci_monte_carlo(
         "names": data["names"],
     }
     if output_dir:
-        savefile = os.path.join(output_dir, "eci_mc_results.json")
+        savefile = os.path.join(output_dir, "eci_mc_results.pkl")
         print("Saving results to %s" % savefile)
-        with open(savefile, "w") as f:
-            json.dump(results, f, indent="")
+        with open(savefile, "wb") as f:
+            pickle.dump(results, f, protocol=pickle.HIGHEST_PROTOCOL)
+
     return results
 
 
