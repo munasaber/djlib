@@ -77,7 +77,7 @@ def read_corr_comp_formation(datafile):
     return results
 
 
-def lower_hull(hull, energy_index):
+def lower_hull(hull, energy_index=-2):
     """Returns the lower convex hull (with respect to energy direction) given  complete convex hull.
     Parameters
     ----------
@@ -161,7 +161,8 @@ def run_eci_monte_carlo(
     eci_walk_step_size,
     iterations,
     sample_frequency,
-    output_dir=False,
+    burn_in=1000000,
+    output_file_path=False,
 ):
     """Samples ECI space according to Metropolis Monte Carlo, recording ECI values and most likely ground state configurations.
 
@@ -276,7 +277,7 @@ def run_eci_monte_carlo(
         below_hull_indices = np.ravel(np.array(below_hull_selection.nonzero()))
 
         # Only record a subset of all monte carlo steps to avoid excessive correlation
-        if i % sample_frequency == 0:
+        if (i > burn_in) and (i % sample_frequency == 0):
             sampled_eci.append(current_eci)
             proposed_ground_states_indices = np.concatenate(
                 (proposed_ground_states_indices, below_hull_indices)
@@ -293,11 +294,11 @@ def run_eci_monte_carlo(
         "proposed_ground_states_indices": proposed_ground_states_indices,
         "rms": rms,
         "names": data["names"],
+        "lasso_eci": lasso_eci,
     }
-    if output_dir:
-        savefile = os.path.join(output_dir, "eci_mc_results.pkl")
-        print("Saving results to %s" % savefile)
-        with open(savefile, "wb") as f:
+    if output_file_path:
+        print("Saving results to %s" % output_file_path)
+        with open(output_file_path, "wb") as f:
             pickle.dump(results, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     return results
