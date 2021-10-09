@@ -16,13 +16,17 @@ import pickle
 
 
 def read_comp_and_energy_points(datafile):
-    """read_comp_and_energy_points(datafile)
-    Generates points in composition and energy space for use in convex hull algorithms.
-    Args:
-        datafile(str): Path to the json data file that contains composition and formation energy data. (generate with "casm query -k comp formation_energy")
+    """Generates points in composition and energy space for use in convex hull algorithms.
 
-    Returns:
-        points(ndarray): Numpy mxn matrix. m = # of configurations in the casm project, n = # of composition axes + 1 for the energy axis.
+    Parameters
+    ----------
+    datafile : str
+        path to the casm query output json file.
+
+    Returns
+    -------
+    points: ndarray,  shape(number_configurations, number_comp_axes+1)
+        Points in composition-energy space.
     """
     with open(datafile) as f:
         data = json.load(f)
@@ -129,15 +133,53 @@ def run_lassocv(corr, formation_energy):
     return eci
 
 
-def generate_rand_eci_vec(num_eci, stdev, normalization):
+def generate_rand_eci_vec(num_eci: int, stdev: float, normalization: float):
+    """Generates a random, normalized vector in eci space. Each element is drawn from a standard normal distribution.
+
+    Parameters
+    ----------
+    num_eci : int
+        The number of ECI.
+    stdev : float
+        Standard deviation defining the standard normal distribution for each element.
+    normalization : float
+        Magnitude to scale the random vector by.
+
+    Returns
+    -------
+    eci_vec : numpy.ndarray
+        Random, scaled vector in ECI space.
+    """
     eci_vec = np.random.normal(scale=stdev, size=num_eci)
     eci_vec = (eci_vec / np.linalg.norm(eci_vec)) * normalization
     return eci_vec
 
 
 def metropolis_hastings_ratio(
-    current_eci, proposed_eci, current_energy, proposed_energy, formation_energy
+    current_eci: numpy.ndarray,
+    proposed_eci: numpy.ndarray,
+    current_energy: numpy.ndarray,
+    proposed_energy: numpy.ndarray,
+    formation_energy: numpy.ndarray,
 ):
+    """Acceptance probability ratio defined in Zabaras et. al, https://doi.org/10.1016/j.cpc.2014.07.013. First part of equation (12)
+    Parameters
+    ----------
+    current_eci : numpy.ndarray shape(number_eci)
+        Vector of current ECI values.
+    proposed_eci : numpy.ndarray shape(number_eci)
+        Vector of proposed eci values, differing from current_eci by a random vector in ECI space.
+    current_energy : numpy.ndarray, shape(number_dft_computed_configs_)
+        Energy calculated with current_eci.
+    proposed_energy : numpy.ndarray, shape(number_dft_computed_configs_)
+        Energy calculated using proposed_eci.
+    formation_energy : numpy.ndarray, shape(number_dft_computed_configs_)
+
+    Returns
+    -------
+    mh_ratio : float
+        Ratio defined in paper listed above- used in deciding whether to accept or reject proposed_eci.
+    """
 
     left_term = (
         np.linalg.norm(proposed_eci, ord=1) / np.linalg.norm(current_eci, ord=1)
@@ -157,10 +199,10 @@ def metropolis_hastings_ratio(
 
 
 def run_eci_monte_carlo(
-    corr_comp_energy_file,
-    eci_walk_step_size,
-    iterations,
-    sample_frequency,
+    corr_comp_energy_file: str,
+    eci_walk_step_size: float,
+    iterations: int,
+    sample_frequency: int,
     burn_in=1000000,
     output_file_path=False,
 ):
@@ -176,6 +218,8 @@ def run_eci_monte_carlo(
         Number of steps to perform in the monte carlo algorithm.
     sample_frequency : int
         The number of steps that pass before ECI and proposed ground states are recorded.
+    burn_in : int
+        The number of steps to "throw away" before ECI and proposed ground states are recorded.
     output_dir : str
         Path to the directory where monte carlo results should be written. By default, results are not written to a file.
 
