@@ -1,6 +1,8 @@
 import json
 import os
+from cupy._indexing.generate import ravel_multi_index
 import numpy as np
+from scipy.sparse.construct import rand
 from scipy.spatial import ConvexHull
 from scipy.interpolate import griddata
 import matplotlib.pyplot as plt
@@ -10,9 +12,7 @@ import csv
 from glob import glob
 from tqdm import tqdm
 import pickle
-
-
-# import cuml
+import cupy as cp
 
 
 def read_comp_and_energy_points(datafile):
@@ -91,10 +91,10 @@ def lower_hull(hull, energy_index=-2):
             index of energy dimension of points within 'hull'.
     Returns
     -------
-        lower_hull_simplices : numpy.ndarray of ints, shape (nfacets, ndim)
+        lower_hull_simplices : np.ndarray of ints, shape (nfacets, ndim)
             indices of the facets forming the lower convex hull.
 
-        lower_hull_vertices : numpy.ndarray of ints, shape (nvertices,)
+        lower_hull_vertices : np.ndarray of ints, shape (nvertices,)
             Indices of the vertices forming the vertices of the lower convex hull.
     """
     # Note: energy_index is used on the "hull.equations" output, which has a scalar offset.
@@ -127,6 +127,29 @@ def checkhull(hull_comps, hull_energies, test_comp, test_energy):
     return np.ravel(np.array(hull_dist))
 
 
+def checkhull_gpu(hull_comps, hull_energies, test_comp, test_energy):
+    """Find if specified coordinates are above, on or below the specified lower convex hull. (GPU cupy version)
+    Args:
+        hull_vertex(ndarray): 2D array, shape nxm where n = # of points, m = # of composition dimensions + 1 energy as the last column.
+        test_coords(ndarray): 2D array, shape lxm where l = # of points to test, m = # of composition dimensions + 1 energy as the last column.
+    Returns:
+        tuple(
+            above_hull(ndarray): 2D array, shape p x m where m = # of composition dimensions + 1 energy as the last column.
+            on_hull(ndarray): 2D array, shape q x m where m = # of composition dimensions + 1 energy as the last column.
+            below_hull(ndarray): 2D array, shape r x m where m = # of composition dimensions + 1 energy as the last column.
+        )
+    """
+    # Need to reshape to column vector to work properly.
+    # Test comp should also be a column vector.
+    test_energy = cp.reshape(test_energy, (-1, 1))
+    # Fit linear grid
+    interp_hull = griddata(hull_comps, hull_energies, test_comp, method="linear")
+
+    # Check if the test_energy points are above or below the hull
+    hull_dist = test_energy - interp_hull
+    return cp.ravel(cp.array(hull_dist))
+
+
 def run_lassocv(corr, formation_energy):
     reg = LassoCV(fit_intercept=False, n_jobs=4).fit(corr, formation_energy)
     eci = reg.coef_
@@ -147,7 +170,7 @@ def generate_rand_eci_vec(num_eci: int, stdev: float, normalization: float):
 
     Returns
     -------
-    eci_vec : numpy.ndarray
+    eci_vec : np.ndarray
         Random, scaled vector in ECI space.
     """
     eci_vec = np.random.normal(scale=stdev, size=num_eci)
@@ -156,24 +179,24 @@ def generate_rand_eci_vec(num_eci: int, stdev: float, normalization: float):
 
 
 def metropolis_hastings_ratio(
-    current_eci: numpy.ndarray,
-    proposed_eci: numpy.ndarray,
-    current_energy: numpy.ndarray,
-    proposed_energy: numpy.ndarray,
-    formation_energy: numpy.ndarray,
+    current_eci: np.ndarray,
+    proposed_eci: np.ndarray,
+    current_energy: np.ndarray,
+    proposed_energy: np.ndarray,
+    formation_energy: np.ndarray,
 ):
     """Acceptance probability ratio defined in Zabaras et. al, https://doi.org/10.1016/j.cpc.2014.07.013. First part of equation (12)
     Parameters
     ----------
-    current_eci : numpy.ndarray shape(number_eci)
+    current_eci : np.ndarray shape(number_eci)
         Vector of current ECI values.
-    proposed_eci : numpy.ndarray shape(number_eci)
+    proposed_eci : np.ndarray shape(number_eci)
         Vector of proposed eci values, differing from current_eci by a random vector in ECI space.
-    current_energy : numpy.ndarray, shape(number_dft_computed_configs_)
+    current_energy : np.ndarray, shape(number_dft_computed_configs_)
         Energy calculated with current_eci.
-    proposed_energy : numpy.ndarray, shape(number_dft_computed_configs_)
+    proposed_energy : np.ndarray, shape(number_dft_computed_configs_)
         Energy calculated using proposed_eci.
-    formation_energy : numpy.ndarray, shape(number_dft_computed_configs_)
+    formation_energy : np.ndarray, shape(number_dft_computed_configs_)
 
     Returns
     -------
@@ -198,6 +221,48 @@ def metropolis_hastings_ratio(
     return mh_ratio
 
 
+def metropolis_hastings_ratio_gpu(
+    current_eci: cp.ndarray,
+    proposed_eci: cp.ndarray,
+    current_energy: cp.ndarray,
+    proposed_energy: cp.ndarray,
+    formation_energy: cp.ndarray,
+):
+    """Acceptance probability ratio defined in Zabaras et. al, https://doi.org/10.1016/j.cpc.2014.07.013. First part of equation (12)
+    Parameters
+    ----------
+    current_eci : cp.ndarray shape(number_eci)
+        Vector of current ECI values.
+    proposed_eci : cp.ndarray shape(number_eci)
+        Vector of proposed eci values, differing from current_eci by a random vector in ECI space.
+    current_energy : cp.ndarray, shape(number_dft_computed_configs_)
+        Energy calculated with current_eci.
+    proposed_energy : cp.ndarray, shape(number_dft_computed_configs_)
+        Energy calculated using proposed_eci.
+    formation_energy : cp.ndarray, shape(number_dft_computed_configs_)
+
+    Returns
+    -------
+    mh_ratio : float
+        Ratio defined in paper listed above- used in deciding whether to accept or reject proposed_eci.
+    """
+    left_term = (
+        cp.linalg.norm(proposed_eci, ord=1) / cp.linalg.norm(current_eci, ord=1)
+    ) ** (-1 * current_eci.shape[0])
+
+    right_term_numerator = cp.linalg.norm(formation_energy - proposed_energy)
+    right_term_denom = cp.linalg.norm(formation_energy - current_energy)
+
+    right_term = (right_term_numerator / right_term_denom) ** (
+        -1 * formation_energy.shape[0]
+    )
+
+    mh_ratio = left_term * right_term
+    if mh_ratio > 1:
+        mh_ratio = 1
+    return mh_ratio
+
+
 def run_eci_monte_carlo(
     corr_comp_energy_file: str,
     eci_walk_step_size: float,
@@ -205,6 +270,7 @@ def run_eci_monte_carlo(
     sample_frequency: int,
     burn_in=1000000,
     output_file_path=False,
+    use_gpu=False,
 ):
     """Samples ECI space according to Metropolis Monte Carlo, recording ECI values and most likely ground state configurations.
 
@@ -222,19 +288,21 @@ def run_eci_monte_carlo(
         The number of steps to "throw away" before ECI and proposed ground states are recorded.
     output_dir : str
         Path to the directory where monte carlo results should be written. By default, results are not written to a file.
+    use_gpu : bool
+        If the computer has a compatible nvidia gpu and use_gpu is True, uses gpu for matrix multiplications. Good for large matrices
 
     Returns
     -------
     results : dict
-        sampled_eci : numpy.ndarray
+        sampled_eci : np.ndarray
             Matrix of recorded ECI. M rows of sampled ECI, where M = (Number of iterations / sample frequency). Each row is a set of N ECI, where N is the number of correlations.
-        acceptance : numpy.ndarray
+        acceptance : np.ndarray
             Vector of booleans dictating whether a step was accepted (True) or rejected (False)
         acceptance_prob : float
             Number of accepted steps divided by number of total steps.
-        proposed_ground_state_indices : numpy.ndarray
+        proposed_ground_state_indices : np.ndarray
             Vector of indices denoting configurations which appeared below the DFT hull across all of the Monte Carlo steps.
-        rms : numpy.ndarray
+        rms : np.ndarray
             Root Mean Squared Error of the calculated energy vs DFT energy for each Monte Carlo step.
         names : list
             List of configuraton names used in the Monte Carlo calculations.
@@ -254,6 +322,9 @@ def run_eci_monte_carlo(
     downsample_selection = formation_energy != uncalculated_energy_descriptor
     corr_calculated = corr[downsample_selection]
     formation_energy_calculated = formation_energy[downsample_selection]
+    if use_gpu:
+        formation_energy_calculated_gpu = formation_energy_calculated.tolist()
+        formation_energy_calculated_gpu = cp.array(formation_energy_calculated_gpu)
     comp_calculated = comp[downsample_selection]
 
     # Find and store the DFT hull:
@@ -269,6 +340,8 @@ def run_eci_monte_carlo(
     # Run lassoCV to get expected eci values
     lasso_eci = run_lassocv(corr_calculated, formation_energy_calculated)
 
+    if use_gpu:
+        corr = cp.array(corr)
     # Instantiate lists
     acceptance = []
     rms = []
@@ -277,39 +350,68 @@ def run_eci_monte_carlo(
 
     # Perform MH Monte Carlo
     current_eci = lasso_eci
+    if use_gpu:
+        current_eci = cp.array(current_eci)
+
     sampled_eci.append(current_eci)
     for i in tqdm(range(iterations), desc="Monte Carlo Progress"):
         eci_random_vec = generate_rand_eci_vec(
             num_eci=lasso_eci.shape[0], stdev=1, normalization=eci_walk_step_size
         )
-        proposed_eci = current_eci + eci_random_vec
 
-        current_energy = np.matmul(corr_calculated, current_eci)
-        proposed_energy = np.matmul(corr_calculated, proposed_eci)
+        if use_gpu:
+            corr_calculated = cp.array(corr_calculated)
+            proposed_eci = current_eci + cp.array(eci_random_vec)
+            current_energy = cp.matmul(corr_calculated, current_eci)
+            proposed_energy = cp.matmul(corr_calculated, proposed_eci)
 
-        mh_ratio = metropolis_hastings_ratio(
-            current_eci,
-            proposed_eci,
-            current_energy,
-            proposed_energy,
-            formation_energy_calculated,
-        )
+        else:
+            proposed_eci = current_eci + eci_random_vec
+            current_energy = np.matmul(corr_calculated, current_eci)
+            proposed_energy = np.matmul(corr_calculated, proposed_eci)
+
+        if use_gpu:
+            mh_ratio = metropolis_hastings_ratio_gpu(
+                current_eci,
+                proposed_eci,
+                current_energy,
+                proposed_energy,
+                formation_energy_calculated_gpu,
+            )
+        else:
+            mh_ratio = metropolis_hastings_ratio(
+                current_eci,
+                proposed_eci,
+                current_energy,
+                proposed_energy,
+                formation_energy_calculated,
+            )
 
         acceptance_comparison = np.random.uniform()
         if mh_ratio >= acceptance_comparison:
             acceptance.append(True)
             current_eci = proposed_eci
-            energy_for_error = proposed_energy
+            if use_gpu:
+                energy_for_error = cp.asnumpy(proposed_energy)
+            else:
+                energy_for_error = proposed_energy
         else:
             acceptance.append(False)
-            energy_for_error = current_energy
+            if use_gpu:
+                energy_for_error = cp.asnumpy(current_energy)
+            else:
+                energy_for_error = current_energy
 
         # Calculate and append rms:
         mse = mean_squared_error(formation_energy_calculated, energy_for_error)
         rms.append(mse ** (1 / 2))
 
         # Compare to DFT hull
-        full_predicted_energy = np.matmul(corr, current_eci)
+        if use_gpu:
+            full_predicted_energy = cp.asnumpy(cp.matmul(corr, current_eci))
+
+        else:
+            full_predicted_energy = np.matmul(corr, current_eci)
         hulldist = checkhull(
             dft_hull_vertices[:, 0:-1],
             dft_hull_vertices[:, -1],
@@ -328,8 +430,11 @@ def run_eci_monte_carlo(
             )
 
     acceptance = np.array(acceptance)
-    sampled_eci = np.array(sampled_eci)
     acceptance_prob = np.count_nonzero(acceptance) / acceptance.shape[0]
+    if use_gpu:
+        sampled_eci = cp.array(sampled_eci)
+    else:
+        sampled_eci = np.array(sampled_eci)
 
     results = {
         "sampled_eci": sampled_eci,

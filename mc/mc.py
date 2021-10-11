@@ -244,6 +244,45 @@ class heating_run:
         self.integ_grand_canonical = np.asarray(integrated_potential)
 
 
+class heating_run_no_lte:
+    def __init__(self, heating_dir):
+        self.path = heating_dir
+        results_file_path = os.path.join(self.path, "results.json")
+        self.mu, self.x, self.b, self.t, self.pot_eng = read_mc_results_file(
+            results_file_path
+        )
+        self.integrate_heating_grand_canonical()
+        self.superdupercell = read_superdupercell(
+            os.path.join(self.path, "mc_settings.json")
+        )
+
+    def integrate_heating_grand_canonical(self):
+        """Function to integrate the grand canonical free energy from monte carlo heating run results.
+        Args:
+            x(list): Vector of compostitions
+            b(list): Vector of beta values
+            potential_energy(list): Vector of potential energy values (E-mu*x)
+            mu(list): Vector of mu values
+
+        Returns:
+            integrated_potential(list): List of grand canonical free energy values corresponding to a fixed mu value.
+        """
+        integrated_potential = []
+        for index in range(len(self.b)):
+            index = index + 1
+            if index > 0:
+                current_b = self.b[0:index]
+                current_potential_energy = self.pot_eng[0:index]
+                integrated_potential.append(
+                    (1 / current_b[-1])
+                    * (
+                        self.b[0] * self.pot_eng[0]
+                        + integrate.simpson(current_potential_energy, current_b)
+                    )
+                )
+        self.integ_grand_canonical = np.asarray(integrated_potential)
+
+
 class cooling_run:
     def __init__(self, cooling_dir, constant_t_run):
         self.path = cooling_dir
@@ -483,9 +522,6 @@ def plot_heating_and_cooling(heating_run, cooling_run):
     return fig
 
 
-# TODO: Function to check that a free energy crossing
-
-
 def predict_free_energy_crossing(heating_run, cooling_run):
     """Function to find crossing point between two (energy vs T) curves.
     Args:
@@ -498,7 +534,7 @@ def predict_free_energy_crossing(heating_run, cooling_run):
         )
 
     """
-    # Check that lengths of all vectors match and that temp_heating == temp_cooling (i.e., they're not the reverse of each other)
+    # Check that lengths of all vectors match and that heating run temperature vector is the same as the cooling run temperature vector (i.e., they're not the reverse of each other)
     if (
         heating_run.integ_grand_canonical.shape[0]
         == heating_run.t.shape[0]
