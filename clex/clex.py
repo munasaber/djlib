@@ -195,6 +195,14 @@ def run_eci_monte_carlo(
         names : list
             List of configuraton names used in the Monte Carlo calculations.
     """
+    # Outputting inputs to user
+    print("The selected corr_comp_energy input file is " +str(corr_comp_energy_file))
+    print("The selected eci_walk_step_size input is " +str(eci_walk_step_size))
+    print("The selected number of iterations are " +str(iterations))
+    print("The selected sample_frequency is " +str(sample_frequency))
+    print("The selected burn_in input is " +str(burn_in))
+    print("The selected output_file_path is " +str(output_file_path))
+
     # Read data from casm query json output
     data = read_corr_comp_formation(corr_comp_energy_file)
     corr = data["corr"]
@@ -306,10 +314,9 @@ def run_eci_monte_carlo(
 
 def plot_eci_hist(eci_data):
     plt.hist(x=eci_data, bins="auto", color="xkcd:crimson", alpha=0.7, rwidth=0.85)
-
     plt.xlabel("ECI value (eV)", fontsize=18)
     plt.ylabel("Count", fontsize=18)
-    # plt.show()
+    plt.show()
     fig = plt.gcf()
     return fig
 
