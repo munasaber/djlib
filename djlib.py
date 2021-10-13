@@ -39,3 +39,71 @@ def find(lst, a):
         print("Found more than one match. This is not expected.")
     elif len(match_list) == 0:
         print("Search value does not match any value in the provided list.")
+
+
+def update_properties_files(casm_root_dir):
+    """Updates json key of property.calc.json files to allow imports.
+
+    Parameters
+    ----------
+    training_data_dir : str
+        Path to a training_data directory in a casm project.
+
+    Returns
+    -------
+    None.
+
+    Notes
+    -----
+    Currently, only modifies "coord_mode" -> "coordinate_mode"
+    """
+    training_data_dir = os.path.join(casm_root_dir, "training_data")
+    scels = glob(os.path.join(training_data_dir, "SCEL*"))
+    for scel in scels:
+        configs = glob(os.path.join(scel, "*"))
+
+        for config in configs:
+            properties_path = os.path.join(
+                config, "calctype.default/properties.calc.json"
+            )
+
+            if os.path.isfile(properties_path):
+                with open(properties_path) as f:
+                    properties = json.load(f)
+                properties["coordinate_mode"] = properties["coord_mode"]
+                with open(
+                    os.path.join(config, "calctype.default/properties.calc.json"), "w"
+                ) as f:
+                    json.dump(properties, f, indent="")
+            else:
+                print("Could not find %s" % properties_path)
+
+
+def move_calctype_dirs(casm_root_dir):
+    """Meant to fix casm import issue where calctype_default is copied within new calctype_default directory. Shifts all the data up one directory.
+
+    Parameters
+    ----------
+    casm_root_dir : str
+        Path to casm project root.
+
+    Returns
+    -------
+    None.
+    """
+    scels = glob(os.path.join(casm_root_dir, "training_data/SCEL*"))
+    for scel in scels:
+        configs = glob(os.path.join(scel, "*"))
+
+        for config in configs:
+
+            if os.path.isdir(os.path.join(config, "calctype.default/calctype.default")):
+                nested_calctype_data = os.path.join(
+                    config, "calctype.default/calctype.default/*"
+                )
+                calctype_path = os.path.join(config, "calctype.default")
+                os.system("mv %s %s" % (nested_calctype_data, calctype_path))
+                os.system(
+                    "rm -r %s"
+                    % os.path.join(config, "calctype.default/calctype.default")
+                )
