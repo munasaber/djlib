@@ -278,7 +278,7 @@ def run_eci_monte_carlo(
     ----------
     corr_comp_energy_file : str
         Path to json casm query output file (output of: "casm query -k corr comp formation_energy -j -o filename.json")
-    eci_walk_step_size : int
+    eci_walk_step_size : float
         Magnitude of the random step vector in ECI space. (Try for a value that gives an acceptance rate of ~ 0.24)
     iterations : int
         Number of steps to perform in the monte carlo algorithm.
@@ -324,7 +324,7 @@ def run_eci_monte_carlo(
     formation_energy_calculated = formation_energy[downsample_selection]
     if use_gpu:
         formation_energy_calculated_gpu = formation_energy_calculated.tolist()
-        formation_energy_calculated_gpu = cp.array(formation_energy_calculated_gpu)
+        formation_energy_calculated_gpu = cp.array(formation_energy_calculated_gp)
     comp_calculated = comp[downsample_selection]
 
     # Find and store the DFT hull:
