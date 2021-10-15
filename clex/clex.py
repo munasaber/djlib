@@ -324,7 +324,7 @@ def run_eci_monte_carlo(
     formation_energy_calculated = formation_energy[downsample_selection]
     if use_gpu:
         formation_energy_calculated_gpu = formation_energy_calculated.tolist()
-        formation_energy_calculated_gpu = cp.array(formation_energy_calculated_gp)
+        formation_energy_calculated_gpu = cp.array(formation_energy_calculated_gpu)
     comp_calculated = comp[downsample_selection]
 
     # Find and store the DFT hull:
@@ -409,7 +409,6 @@ def run_eci_monte_carlo(
         # Compare to DFT hull
         if use_gpu:
             full_predicted_energy = cp.asnumpy(cp.matmul(corr, current_eci))
-
         else:
             full_predicted_energy = np.matmul(corr, current_eci)
         hulldist = checkhull(
@@ -437,6 +436,9 @@ def run_eci_monte_carlo(
         sampled_eci = np.array(sampled_eci)
 
     results = {
+        "iterations": iterations,
+        "sample_frequency": sample_frequency,
+        "burn_in": burn_in,
         "sampled_eci": sampled_eci,
         "acceptance": acceptance,
         "acceptance_prob": acceptance_prob,
