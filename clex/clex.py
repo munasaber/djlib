@@ -128,7 +128,9 @@ def checkhull(hull_comps, hull_energies, test_comp, test_energy):
 
 
 def run_lassocv(corr, formation_energy):
-    reg = LassoCV(fit_intercept=False, n_jobs=4).fit(corr, formation_energy)
+    reg = LassoCV(fit_intercept=False, n_jobs=4, max_iter=50000).fit(
+        corr, formation_energy
+    )
     eci = reg.coef_
     return eci
 
@@ -156,11 +158,11 @@ def generate_rand_eci_vec(num_eci: int, stdev: float, normalization: float):
 
 
 def metropolis_hastings_ratio(
-    current_eci: numpy.ndarray,
-    proposed_eci: numpy.ndarray,
-    current_energy: numpy.ndarray,
-    proposed_energy: numpy.ndarray,
-    formation_energy: numpy.ndarray,
+    current_eci: np.ndarray,
+    proposed_eci: np.ndarray,
+    current_energy: np.ndarray,
+    proposed_energy: np.ndarray,
+    formation_energy: np.ndarray,
 ):
     """Acceptance probability ratio defined in Zabaras et. al, https://doi.org/10.1016/j.cpc.2014.07.013. First part of equation (12)
     Parameters
@@ -181,15 +183,16 @@ def metropolis_hastings_ratio(
         Ratio defined in paper listed above- used in deciding whether to accept or reject proposed_eci.
     """
 
-    left_term = (
-        np.linalg.norm(proposed_eci, ord=1) / np.linalg.norm(current_eci, ord=1)
-    ) ** (-1 * current_eci.shape[0])
+    left_term = np.power(
+        (np.linalg.norm(proposed_eci, ord=1) / np.linalg.norm(current_eci, ord=1)),
+        (-1 * current_eci.shape[0]),
+    )
 
     right_term_numerator = np.linalg.norm(formation_energy - proposed_energy)
     right_term_denom = np.linalg.norm(formation_energy - current_energy)
 
-    right_term = (right_term_numerator / right_term_denom) ** (
-        -1 * formation_energy.shape[0]
+    right_term = np.power(
+        (right_term_numerator / right_term_denom), (-1 * formation_energy.shape[0])
     )
 
     mh_ratio = left_term * right_term
@@ -263,8 +266,9 @@ def run_eci_monte_carlo(
     points[:, 0:-1] = comp_calculated
     points[:, -1] = formation_energy_calculated
     hull = ConvexHull(points)
-    dft_hull_simplices, dft_hull_vertices = lower_hull(hull, energy_index=-2)
-    dft_hull_vertices = np.array(hull.points[dft_hull_vertices])
+    dft_hull_simplices, dft_hull_config_indices = lower_hull(hull, energy_index=-2)
+    dft_hull_corr = corr_calculated[dft_hull_config_indices]
+    dft_hull_vertices = hull.points[dft_hull_config_indices]
 
     # Run lassoCV to get expected eci values
     lasso_eci = run_lassocv(corr_calculated, formation_energy_calculated)
@@ -306,13 +310,14 @@ def run_eci_monte_carlo(
 
         # Calculate and append rms:
         mse = mean_squared_error(formation_energy_calculated, energy_for_error)
-        rms.append(mse ** (1 / 2))
+        rms.append(np.sqrt(mse))
 
         # Compare to DFT hull
         full_predicted_energy = np.matmul(corr, current_eci)
+        dft_hull_clex_predict_energies = np.matmul(dft_hull_corr, current_eci)
         hulldist = checkhull(
             dft_hull_vertices[:, 0:-1],
-            dft_hull_vertices[:, -1],
+            dft_hull_clex_predict_energies,
             comp,
             full_predicted_energy,
         )
@@ -332,6 +337,9 @@ def run_eci_monte_carlo(
     acceptance_prob = np.count_nonzero(acceptance) / acceptance.shape[0]
 
     results = {
+        "iterations": iterations,
+        "sample_frequency": sample_frequency,
+        "burn_in": burn_in,
         "sampled_eci": sampled_eci,
         "acceptance": acceptance,
         "acceptance_prob": acceptance_prob,
