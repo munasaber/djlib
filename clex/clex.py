@@ -16,13 +16,17 @@ import pickle
 
 
 def read_comp_and_energy_points(datafile):
-    """read_comp_and_energy_points(datafile)
-    Generates points in composition and energy space for use in convex hull algorithms.
-    Args:
-        datafile(str): Path to the json data file that contains composition and formation energy data. (generate with "casm query -k comp formation_energy")
+    """Generates points in composition and energy space for use in convex hull algorithms.
 
-    Returns:
-        points(ndarray): Numpy mxn matrix. m = # of configurations in the casm project, n = # of composition axes + 1 for the energy axis.
+    Parameters
+    ----------
+    datafile : str
+        path to the casm query output json file.
+
+    Returns
+    -------
+    points: ndarray,  shape(number_configurations, number_comp_axes+1)
+        Points in composition-energy space.
     """
     with open(datafile) as f:
         data = json.load(f)
@@ -77,7 +81,7 @@ def read_corr_comp_formation(datafile):
     return results
 
 
-def lower_hull(hull, energy_index):
+def lower_hull(hull, energy_index=-2):
     """Returns the lower convex hull (with respect to energy direction) given  complete convex hull.
     Parameters
     ----------
@@ -124,30 +128,71 @@ def checkhull(hull_comps, hull_energies, test_comp, test_energy):
 
 
 def run_lassocv(corr, formation_energy):
-    reg = LassoCV(fit_intercept=False, n_jobs=4).fit(corr, formation_energy)
+    reg = LassoCV(fit_intercept=False, n_jobs=4, max_iter=50000).fit(
+        corr, formation_energy
+    )
     eci = reg.coef_
     return eci
 
 
-def generate_rand_eci_vec(num_eci, stdev, normalization):
+def generate_rand_eci_vec(num_eci: int, stdev: float, normalization: float):
+    """Generates a random, normalized vector in eci space. Each element is drawn from a standard normal distribution.
+
+    Parameters
+    ----------
+    num_eci : int
+        The number of ECI.
+    stdev : float
+        Standard deviation defining the standard normal distribution for each element.
+    normalization : float
+        Magnitude to scale the random vector by.
+
+    Returns
+    -------
+    eci_vec : numpy.ndarray
+        Random, scaled vector in ECI space.
+    """
     eci_vec = np.random.normal(scale=stdev, size=num_eci)
     eci_vec = (eci_vec / np.linalg.norm(eci_vec)) * normalization
     return eci_vec
 
 
 def metropolis_hastings_ratio(
-    current_eci, proposed_eci, current_energy, proposed_energy, formation_energy
+    current_eci: np.ndarray,
+    proposed_eci: np.ndarray,
+    current_energy: np.ndarray,
+    proposed_energy: np.ndarray,
+    formation_energy: np.ndarray,
 ):
+    """Acceptance probability ratio defined in Zabaras et. al, https://doi.org/10.1016/j.cpc.2014.07.013. First part of equation (12)
+    Parameters
+    ----------
+    current_eci : numpy.ndarray shape(number_eci)
+        Vector of current ECI values.
+    proposed_eci : numpy.ndarray shape(number_eci)
+        Vector of proposed eci values, differing from current_eci by a random vector in ECI space.
+    current_energy : numpy.ndarray, shape(number_dft_computed_configs_)
+        Energy calculated with current_eci.
+    proposed_energy : numpy.ndarray, shape(number_dft_computed_configs_)
+        Energy calculated using proposed_eci.
+    formation_energy : numpy.ndarray, shape(number_dft_computed_configs_)
 
-    left_term = (
-        np.linalg.norm(proposed_eci, ord=1) / np.linalg.norm(current_eci, ord=1)
-    ) ** (-1 * current_eci.shape[0])
+    Returns
+    -------
+    mh_ratio : float
+        Ratio defined in paper listed above- used in deciding whether to accept or reject proposed_eci.
+    """
+
+    left_term = np.power(
+        (np.linalg.norm(proposed_eci, ord=1) / np.linalg.norm(current_eci, ord=1)),
+        (-1 * current_eci.shape[0]),
+    )
 
     right_term_numerator = np.linalg.norm(formation_energy - proposed_energy)
     right_term_denom = np.linalg.norm(formation_energy - current_energy)
 
-    right_term = (right_term_numerator / right_term_denom) ** (
-        -1 * formation_energy.shape[0]
+    right_term = np.power(
+        (right_term_numerator / right_term_denom), (-1 * formation_energy.shape[0])
     )
 
     mh_ratio = left_term * right_term
@@ -157,11 +202,12 @@ def metropolis_hastings_ratio(
 
 
 def run_eci_monte_carlo(
-    corr_comp_energy_file,
-    eci_walk_step_size,
-    iterations,
-    sample_frequency,
-    output_dir=False,
+    corr_comp_energy_file: str,
+    eci_walk_step_size: float,
+    iterations: int,
+    sample_frequency: int,
+    burn_in=1000000,
+    output_file_path=False,
 ):
     """Samples ECI space according to Metropolis Monte Carlo, recording ECI values and most likely ground state configurations.
 
@@ -175,6 +221,8 @@ def run_eci_monte_carlo(
         Number of steps to perform in the monte carlo algorithm.
     sample_frequency : int
         The number of steps that pass before ECI and proposed ground states are recorded.
+    burn_in : int
+        The number of steps to "throw away" before ECI and proposed ground states are recorded.
     output_dir : str
         Path to the directory where monte carlo results should be written. By default, results are not written to a file.
 
@@ -218,8 +266,9 @@ def run_eci_monte_carlo(
     points[:, 0:-1] = comp_calculated
     points[:, -1] = formation_energy_calculated
     hull = ConvexHull(points)
-    dft_hull_simplices, dft_hull_vertices = lower_hull(hull, energy_index=-2)
-    dft_hull_vertices = np.array(hull.points[dft_hull_vertices])
+    dft_hull_simplices, dft_hull_config_indices = lower_hull(hull, energy_index=-2)
+    dft_hull_corr = corr_calculated[dft_hull_config_indices]
+    dft_hull_vertices = hull.points[dft_hull_config_indices]
 
     # Run lassoCV to get expected eci values
     lasso_eci = run_lassocv(corr_calculated, formation_energy_calculated)
@@ -261,13 +310,14 @@ def run_eci_monte_carlo(
 
         # Calculate and append rms:
         mse = mean_squared_error(formation_energy_calculated, energy_for_error)
-        rms.append(mse ** (1 / 2))
+        rms.append(np.sqrt(mse))
 
         # Compare to DFT hull
         full_predicted_energy = np.matmul(corr, current_eci)
+        dft_hull_clex_predict_energies = np.matmul(dft_hull_corr, current_eci)
         hulldist = checkhull(
             dft_hull_vertices[:, 0:-1],
-            dft_hull_vertices[:, -1],
+            dft_hull_clex_predict_energies,
             comp,
             full_predicted_energy,
         )
@@ -276,7 +326,7 @@ def run_eci_monte_carlo(
         below_hull_indices = np.ravel(np.array(below_hull_selection.nonzero()))
 
         # Only record a subset of all monte carlo steps to avoid excessive correlation
-        if i % sample_frequency == 0:
+        if (i > burn_in) and (i % sample_frequency == 0):
             sampled_eci.append(current_eci)
             proposed_ground_states_indices = np.concatenate(
                 (proposed_ground_states_indices, below_hull_indices)
@@ -287,17 +337,20 @@ def run_eci_monte_carlo(
     acceptance_prob = np.count_nonzero(acceptance) / acceptance.shape[0]
 
     results = {
+        "iterations": iterations,
+        "sample_frequency": sample_frequency,
+        "burn_in": burn_in,
         "sampled_eci": sampled_eci,
         "acceptance": acceptance,
         "acceptance_prob": acceptance_prob,
         "proposed_ground_states_indices": proposed_ground_states_indices,
         "rms": rms,
         "names": data["names"],
+        "lasso_eci": lasso_eci,
     }
-    if output_dir:
-        savefile = os.path.join(output_dir, "eci_mc_results.pkl")
-        print("Saving results to %s" % savefile)
-        with open(savefile, "wb") as f:
+    if output_file_path:
+        print("Saving results to %s" % output_file_path)
+        with open(output_file_path, "wb") as f:
             pickle.dump(results, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     return results
