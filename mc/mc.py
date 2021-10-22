@@ -493,8 +493,8 @@ def predict_free_energy_crossing(heating_run, cooling_run):
         cooling_run(djlib.mc.cooling_run): Cooling run object defined in djlib.mc
     Returns:
         tuple(
-            t_intersect_predict
-
+            t_intersect_predict,
+            energy_intersect_predict
         )
 
     """
