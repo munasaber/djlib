@@ -60,8 +60,8 @@ def read_corr_comp_formation(datafile):
             corr.append(np.array(entry["corr"]).flatten())
         if "formation_energy" in entry.keys():
             formation_energy.append(entry["formation_energy"])
-        if "name" in entry.keys():
-            scel_names.append(entry["name"])
+        if "configname" in entry.keys():
+            scel_names.append(entry["configname"])
         if "comp" in entry.keys():
             comp.append(entry["comp"][0])  # Assumes a binary
     corr = np.array(corr)
@@ -135,19 +135,42 @@ def generate_rand_eci_vec(num_eci, stdev, normalization):
     return eci_vec
 
 
-def metropolis_hastings_ratio(
-    current_eci, proposed_eci, current_energy, proposed_energy, formation_energy
-):
 
-    left_term = (
-        np.linalg.norm(proposed_eci, ord=1) / np.linalg.norm(current_eci, ord=1)
-    ) ** (-1 * current_eci.shape[0])
+def metropolis_hastings_ratio(
+    current_eci: np.ndarray,
+    proposed_eci: np.ndarray,
+    current_energy: np.ndarray,
+    proposed_energy: np.ndarray,
+    formation_energy: np.ndarray,
+):
+    """Acceptance probability ratio defined in Zabaras et. al, https://doi.org/10.1016/j.cpc.2014.07.013. First part of equation (12)
+    Parameters
+    ----------
+    current_eci : numpy.ndarray shape(number_eci)
+        Vector of current ECI values.
+    proposed_eci : numpy.ndarray shape(number_eci)
+        Vector of proposed eci values, differing from current_eci by a random vector in ECI space.
+    current_energy : numpy.ndarray, shape(number_dft_computed_configs_)
+        Energy calculated with current_eci.
+    proposed_energy : numpy.ndarray, shape(number_dft_computed_configs_)
+        Energy calculated using proposed_eci.
+    formation_energy : numpy.ndarray, shape(number_dft_computed_configs_)
+    Returns
+    -------
+    mh_ratio : float
+        Ratio defined in paper listed above- used in deciding whether to accept or reject proposed_eci.
+    """
+
+    left_term = np.power(
+        (np.linalg.norm(proposed_eci, ord=1) / np.linalg.norm(current_eci, ord=1)),
+        (-1 * current_eci.shape[0]),
+    )
 
     right_term_numerator = np.linalg.norm(formation_energy - proposed_energy)
     right_term_denom = np.linalg.norm(formation_energy - current_energy)
 
-    right_term = (right_term_numerator / right_term_denom) ** (
-        -1 * formation_energy.shape[0]
+    right_term = np.power(
+        (right_term_numerator / right_term_denom), (-1 * formation_energy.shape[0])
     )
 
     mh_ratio = left_term * right_term
@@ -156,16 +179,17 @@ def metropolis_hastings_ratio(
     return mh_ratio
 
 
+
+
 def run_eci_monte_carlo(
-    corr_comp_energy_file,
-    eci_walk_step_size,
-    iterations,
-    sample_frequency,
+    corr_comp_energy_file: str,
+    eci_walk_step_size: float,
+    iterations: int,
+    sample_frequency: int,
     burn_in=1000000,
     output_file_path=False,
 ):
     """Samples ECI space according to Metropolis Monte Carlo, recording ECI values and most likely ground state configurations.
-
     Parameters
     ----------
     corr_comp_energy_file : str
@@ -176,9 +200,10 @@ def run_eci_monte_carlo(
         Number of steps to perform in the monte carlo algorithm.
     sample_frequency : int
         The number of steps that pass before ECI and proposed ground states are recorded.
+    burn_in : int
+        The number of steps to "throw away" before ECI and proposed ground states are recorded.
     output_dir : str
         Path to the directory where monte carlo results should be written. By default, results are not written to a file.
-
     Returns
     -------
     results : dict
@@ -195,6 +220,7 @@ def run_eci_monte_carlo(
         names : list
             List of configuraton names used in the Monte Carlo calculations.
     """
+    
     # Outputting inputs to user
     print("The selected corr_comp_energy input file is " +str(corr_comp_energy_file))
     print("The selected eci_walk_step_size input is " +str(eci_walk_step_size))
@@ -202,7 +228,7 @@ def run_eci_monte_carlo(
     print("The selected sample_frequency is " +str(sample_frequency))
     print("The selected burn_in input is " +str(burn_in))
     print("The selected output_file_path is " +str(output_file_path))
-
+    
     # Read data from casm query json output
     data = read_corr_comp_formation(corr_comp_energy_file)
     corr = data["corr"]
@@ -227,8 +253,9 @@ def run_eci_monte_carlo(
     points[:, 0:-1] = comp_calculated
     points[:, -1] = formation_energy_calculated
     hull = ConvexHull(points)
-    dft_hull_simplices, dft_hull_vertices = lower_hull(hull, energy_index=-2)
-    dft_hull_vertices = np.array(hull.points[dft_hull_vertices])
+    dft_hull_simplices, dft_hull_config_indices = lower_hull(hull, energy_index=-2)
+    dft_hull_corr = corr_calculated[dft_hull_config_indices]
+    dft_hull_vertices = hull.points[dft_hull_config_indices]
 
     # Run lassoCV to get expected eci values
     lasso_eci = run_lassocv(corr_calculated, formation_energy_calculated)
@@ -270,13 +297,14 @@ def run_eci_monte_carlo(
 
         # Calculate and append rms:
         mse = mean_squared_error(formation_energy_calculated, energy_for_error)
-        rms.append(mse ** (1 / 2))
+        rms.append(np.sqrt(mse))
 
         # Compare to DFT hull
         full_predicted_energy = np.matmul(corr, current_eci)
+        dft_hull_clex_predict_energies = np.matmul(dft_hull_corr, current_eci)
         hulldist = checkhull(
             dft_hull_vertices[:, 0:-1],
-            dft_hull_vertices[:, -1],
+            dft_hull_clex_predict_energies,
             comp,
             full_predicted_energy,
         )
@@ -296,6 +324,9 @@ def run_eci_monte_carlo(
     acceptance_prob = np.count_nonzero(acceptance) / acceptance.shape[0]
 
     results = {
+        "iterations": iterations,
+        "sample_frequency": sample_frequency,
+        "burn_in": burn_in,
         "sampled_eci": sampled_eci,
         "acceptance": acceptance,
         "acceptance_prob": acceptance_prob,
@@ -310,6 +341,8 @@ def run_eci_monte_carlo(
             pickle.dump(results, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     return results
+
+
 
 
 def plot_eci_hist(eci_data):
@@ -328,6 +361,112 @@ def plot_eci_covariance(eci_data_1, eci_data_2):
     fig = plt.gcf()
     return fig
 
+
+def get_hull(formation_energy, composition):
+    points=np.zeros((len(composition), 2))
+    points[:, 0]=composition
+    points[:, 1]=formation_energy
+    hull=ConvexHull(points)
+    for simplex in hull.simplices:
+        plt.plot(points[simplex, 0], points[simplex, 1], 'k-')
+
+def compare_energies_on_hull(data, sampled_iteration, results):
+    '''
+    Function for comparing the original hull to predicted_formation_energies
+    
+    Arguments
+    -----
+    data_file: str
+        File that includes all compositions, formation_energies, and hull_distances for all calculated configurations 
+    predicted_structures: str
+        File that includes the names of all configurations predicted and set to be calculated with DFT. 
+
+    Returns
+    ----
+    Returns plots that include a convex_hull that has ground states where the calculated data is shown in blue, 
+    the data that was predicted with djlib and calculated is shown in prurple (i.e. if a configuration in the predicted_structures list has an energy), 
+    and the configurations predicted with djlib and are below the hull that have no energy is shown are shown in green
+    
+    '''
+
+    ###Grab ECI from ECI data file and convert to Matrix
+    sampled_eci=results["sampled_eci"]
+    eci=sampled_eci[sampled_iteration]
+    
+    ###Grab correlations, formation_energies, and comps from json file
+    corr = data["corr"]
+    formation_energy = data["formation_energy"]
+    comp = data["comp"]
+
+    ###Get Formation energies and compositions for calculated structures alone
+    correlations_for_calculated_structures=[]
+    formation_energies_for_calculated_structures=[]
+    compositions_for_calculated_structures=[]
+    print("The type of data[corr][i] is " +str(type(data["corr"][0]))+ " of length "+ str(data["corr"][0].shape))
+    for i in range(0, len(data["formation_energy"])):
+        if isinstance(formation_energy[i], float):
+            if formation_energy[i]<=0:
+                correlations_for_calculated_structures.append(data["corr"][i])
+                formation_energies_for_calculated_structures.append(data["formation_energy"][i])
+                compositions_for_calculated_structures.append(data["comp"][i])
+    
+    
+    plt.figure()
+    ###Create hull for dft calculated compositions and formation_energies
+    get_hull(formation_energies_for_calculated_structures, compositions_for_calculated_structures)
+    correlations_array=np.stack(correlations_for_calculated_structures, axis=0)    
+    ###Get clex calculated Formation energies and compositions for calculated structures alone
+    print("The dimensions for the correlation matrix is " +str(correlations_array.shape)+"  The dimensions for the eci matrix is " +str(eci.shape))
+    get_hull(np.matmul(correlations_array, eci), compositions_for_calculated_structures)
+    plt.scatter(compositions_for_calculated_structures, formation_energies_for_calculated_structures)
+    plt.scatter(compositions_for_calculated_structures, np.matmul(correlations_array, eci))
+    plt.title("DFT vs clex for iteration: "+str(sampled_iteration), fontsize=18)
+    plt.xlabel("compositions", fontsize=18)
+    plt.ylabel("Formation Energy (eV)")
+    plt.xlim(0, 1)
+    plt.ylim(-3, 0)
+
+def plot_distances_to_clex_hull(dft_data, sampled_iteration, results):
+    '''
+    Plots the distance of the energy of a configuration, either calculated through DFT or predicted through MCMC and finds the distance
+    Plot parameters are (eV/cell) compared to composition
+
+    Arguments
+    ----
+    dft_data : np.array
+        Numpy array that contains the correlations, formation energy, and compositions for all calculated structures
+
+    sampled_iteration : int
+        Dictates which of the samples in the iteration the calculation and plotting is done for. The number of sample iterations is equal to (iterations-burn_in)/samples
+    
+    results : Dict
+     Dictionary with the data of sampled_eci, acceptance, acceptance_prob, proposed_ground_states_indices, rms, names, and lasso_eci. 
+    '''
+    
+    ###Grab ECI from ECI data file and convert to Matrix
+    sampled_eci=results["sampled_eci"]
+    eci=sampled_eci[sampled_iteration]
+    
+    ###Grab correlations, formation_energies, and comps from json file
+    corr = data["corr"]
+    formation_energy = data["formation_energy"]
+    comp = data["comp"]
+    ###Calculate structure energies from ECI data for DFT calculated structures
+    CLEX_Energies_all_energies=corr*eci
+
+    ###Get Formation energies and compositions for calculated structures alone
+    correlations_for_calculated_structures=[]
+    formation_energies_for_calculated_structures=[]
+    compositions_for_calculated_structures=[]
+    print("The type of data[corr][i] is " +str(type(data["corr"][0]))+ " of length "+ str(data["corr"][0].shape))
+    for i in range(0, len(data["formation_energy"])):
+        if isinstance(formation_energy[i], float):
+            if formation_energy[i]<=0:
+                correlations_for_calculated_structures.append(data["corr"][i])
+                formation_energies_for_calculated_structures.append(data["formation_energy"][i])
+                compositions_for_calculated_structures.append(data["comp"][i])
+        
+    
 
 def plot_clex_hull_data_1_x(
     fit_dir,
