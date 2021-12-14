@@ -10,6 +10,7 @@ import csv
 from glob import glob
 from tqdm import tqdm
 import pickle
+from string import Template
 
 
 # import cuml
@@ -106,15 +107,17 @@ def lower_hull(hull, energy_index=-2):
 
 def checkhull(hull_comps, hull_energies, test_comp, test_energy):
     """Find if specified coordinates are above, on or below the specified lower convex hull.
-    Args:
-        hull_vertex(ndarray): 2D array, shape nxm where n = # of points, m = # of composition dimensions + 1 energy as the last column.
-        test_coords(ndarray): 2D array, shape lxm where l = # of points to test, m = # of composition dimensions + 1 energy as the last column.
-    Returns:
-        tuple(
-            above_hull(ndarray): 2D array, shape p x m where m = # of composition dimensions + 1 energy as the last column.
-            on_hull(ndarray): 2D array, shape q x m where m = # of composition dimensions + 1 energy as the last column.
-            below_hull(ndarray): 2D array, shape r x m where m = # of composition dimensions + 1 energy as the last column.
-        )
+    Parameters
+    ----------
+        hull_comps : numpy.ndarray shape(number_configurations, number_composition_axes)
+            Coordinate in composition space for all configurations.
+        hull_energies : numpy.ndarray shape(number_configurations,)
+            Formation energy for each configuration.
+    Returns
+    -------
+        hull_dist : numpy.ndarray shape(number_of_configurations,)
+            The distance of each configuration from the convex hull described by the current cluster expansion of DFT-determined convex hull configurations.
+
     """
     # Need to reshape to column vector to work properly.
     # Test comp should also be a column vector.
@@ -229,6 +232,28 @@ def run_eci_monte_carlo(
     Returns
     -------
     results : dict
+
+        "iterations": int
+            Number of monte carlo iterations, including burn in.
+        "sample_frequency": int
+            Frequency to sample and write the monte carlo results (current ECI, hulldist, proposed ground states, etc). Total number of samples = (iterations-burn_in)/sample_frequency
+        "burn_in": int
+            Number of iterations to "throw away" before recording samples.
+        "sampled_eci": numpy.ndarray shape(number_samples, number_eci)
+            Each row contains the eci values of a given iteration.
+        "acceptance": numpy.ndarray
+            Vector of booleans signifying whether a proposed step in ECI space was accepted or rejected.
+        "acceptance_prob": float
+            Fraction of proposed steps that were accepted over the total number of steps.
+        "proposed_ground_states_indices": numpy.ndarray
+            Vector of configuration indices describing which configurations were "flagged" as potential ground states.
+        "rms": numpy.ndarray
+            Vector of RMSE values for each iteration.
+        "names": list
+            List of configuration names, in the order which they are written in the provided casm query data file.
+        "lasso_eci": numpy.ndarray shape(number_ecis)
+            Vector of ECI values decided by the initial LASSOCV regression.
+
         sampled_eci : numpy.ndarray
             Matrix of recorded ECI. M rows of sampled ECI, where M = (Number of iterations / sample frequency). Each row is a set of N ECI, where N is the number of correlations.
         acceptance : numpy.ndarray
@@ -278,6 +303,7 @@ def run_eci_monte_carlo(
     rms = []
     sampled_eci = []
     proposed_ground_states_indices = np.array([])
+    sampled_hulldist = []
 
     # Perform MH Monte Carlo
     current_eci = lasso_eci
@@ -321,7 +347,7 @@ def run_eci_monte_carlo(
             comp,
             full_predicted_energy,
         )
-
+        sampled_hulldist.append(hulldist)
         below_hull_selection = hulldist < 0
         below_hull_indices = np.ravel(np.array(below_hull_selection.nonzero()))
 
@@ -347,6 +373,7 @@ def run_eci_monte_carlo(
         "rms": rms,
         "names": data["names"],
         "lasso_eci": lasso_eci,
+        # "sampled_hulldist": sampled_hulldist,
     }
     if output_file_path:
         print("Saving results to %s" % output_file_path)
@@ -378,6 +405,7 @@ def plot_clex_hull_data_1_x(
     fit_dir,
     hall_of_fame_index,
     full_formation_energy_file="full_formation_energies.txt",
+    custom_title="False",
 ):
     """plot_clex_hull_data_1_x(fit_dir, hall_of_fame_index, full_formation_energy_file='full_formation_energies.txt')
 
@@ -394,7 +422,10 @@ def plot_clex_hull_data_1_x(
     # TODO: Definitely want to re-implement this with json input
     # Pre-define values to pull from data files
     # title is intended to be in the form of "casm_root_name_name_of_specific_fit_directory".
-    title = fit_dir.split("/")[-3] + "_" + fit_dir.split("/")[-1]
+    if custom_title:
+        title = custom_title
+    else:
+        title = fit_dir.split("/")[-3] + "_" + fit_dir.split("/")[-1]
     dft_scel_names = []
     clex_scel_names = []
     dft_hull_data = []
@@ -468,14 +499,19 @@ def plot_clex_hull_data_1_x(
     ax = fig.add_subplot()
     ax.text(
         0.80,
-        0.80 * min(dft_hull_data[:, 4]),
+        0.90 * min(dft_hull_data[:, 5]),
         "CV:      %.10f\nRMS:    %.10f\nWRMS: %.10f" % (cv, rms, wrms),
-        fontsize=15,
+        fontsize=20,
     )
     labels = []
-    plt.title(title, fontsize=30)
-    plt.xlabel(r"Composition", fontsize=20)
-    plt.ylabel(r"Energy $\frac{eV}{prim}$", fontsize=20)
+    if custom_title:
+        plt.title(custom_title, fontsize=30)
+    else:
+        plt.title(title, fontsize=30)
+    plt.xlabel(r"Composition", fontsize=22)
+    plt.ylabel(r"Energy $\frac{eV}{prim}$", fontsize=22)
+    plt.xticks(fontsize=22)
+    plt.yticks(fontsize=22)
     plt.plot(dft_hull_data[:, 1], dft_hull_data[:, 5], marker="o", color="xkcd:crimson")
     labels.append("DFT Hull")
     plt.plot(
@@ -512,7 +548,120 @@ def plot_clex_hull_data_1_x(
     else:
         print("'_%s_below_hull' file doesn't exist" % hall_of_fame_index)
 
-    plt.legend(labels, loc="lower left", fontsize=10)
+    plt.legend(labels, loc="lower left", fontsize=20)
 
     fig = plt.gcf()
     return fig
+
+
+def format_stan_model(
+    eci_variance_args,
+    likelihood_variance_args,
+    eci_prior="normal",
+    eci_variance_prior="gamma",
+    likelihood_variance_prior="gamma",
+):
+    """
+
+    Parameters
+    ----------
+
+    Returns
+    -------
+    model_template : str
+        Formatted stan model template
+    """
+
+    # TODO: Add filter on string arguments
+
+    supported_eci_priors = ["normal"]
+    supported_eci_variance_priors = ["gamma"]
+    supported_model_variance_priors = ["gamma"]
+
+    assert eci_prior in supported_eci_priors, "Specified ECI prior is not suported."
+    assert (
+        eci_variance_prior in supported_eci_variance_priors
+    ), "Specified ECI variance prior is not supported."
+    assert (
+        likelihood_variance_prior in supported_model_variance_priors
+    ), "Specified model variance prior is not supported."
+
+    formatted_sigma = likelihood_variance_prior + str(likelihood_variance_args)
+    formatted_eci_variance = eci_variance_prior + str(eci_variance_args)
+    ce_model = Template(
+        """data {
+        int K; 
+        int n_configs;
+        matrix[n_configs, K] corr;
+        vector[n_configs] energies;
+    }
+parameters {
+        vector[K] eci;
+        vector<lower=0>[K] eci_variance;
+        real<lower=0> sigma;
+    }
+model 
+    {
+        sigma ~ $formatted_sigma ;
+        for (k in 1:K){
+            eci_variance[k] ~ $formatted_eci_variance ;
+            eci[k] ~ normal(0,eci_variance[k]);
+        }
+        energies ~ normal(corr * eci, sigma);
+    }"""
+    )
+    model_template = ce_model.substitute(
+        formatted_sigma=formatted_sigma, formatted_eci_variance=formatted_eci_variance
+    )
+    return model_template
+
+
+def format_stan_executable_script(
+    data_file, stan_model_file, eci_output_file, num_samples, num_chains=1
+):
+    """
+    Parameters
+    ----------
+
+    Returns
+    -------
+    executable_file: str
+        Executable python stan command, formatted as a string
+    """
+    template = Template(
+        """
+import pickle 
+import stan
+import djlib.clex as cl
+
+# Load Casm Data
+data_file = '$data_file'
+data = cl.read_corr_comp_formation(data_file)
+corr = tuple(map(tuple, data["corr"]))
+energies = tuple(data["formation_energy"])
+
+#Format Stan Model
+n_configs = len(energies)
+k = len(corr[0])
+ce_data = {"K": k, "n_configs": n_configs, "corr": corr, "energies": energies}
+with open('$stan_model_file', 'r') as f:
+    ce_model = f.read()
+posterior = stan.build(ce_model, data=ce_data)
+
+# Run MCMC
+fit = posterior.sample(num_chains=$num_chains, num_samples=$num_samples)
+eci = fit["eci"]
+
+# Write results
+with open('$eci_output_file', "wb") as f:
+    pickle.dump({"eci": eci}, f, protocol=pickle.HIGHEST_PROTOCOL)
+"""
+    )
+    executable_file = template.substitute(
+        data_file=data_file,
+        stan_model_file=stan_model_file,
+        num_chains=num_chains,
+        num_samples=num_samples,
+        eci_output_file=eci_output_file,
+    )
+    return executable_file
