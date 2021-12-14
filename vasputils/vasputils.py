@@ -1,4 +1,3 @@
-from typing_extensions import final
 import numpy as np
 import os
 import json
@@ -252,6 +251,7 @@ def collect_convergence_data(convergence_dir, write_data=True):
         "energies": energies,
         "kdensity": kdensity,
     }
-    with open(os.path.join(convergence_dir, "convergence_data.json"), "w") as f:
-        json.dump(convergence_data, f)
+    if write_data:
+        with open(os.path.join(convergence_dir, "convergence_data.json"), "w") as f:
+            json.dump(convergence_data, f)
     return convergence_data
