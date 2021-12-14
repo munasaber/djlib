@@ -1,10 +1,8 @@
 import numpy as np
 import os
 import json
-
-from numpy.core.einsumfunc import _parse_possible_contraction
-
-# Defines a poscar class and functions to manipulate poscars from vasp.
+import matplotlib.pyplot as plt
+import djlib as dj
 
 
 class poscar:
@@ -255,3 +253,26 @@ def collect_convergence_data(convergence_dir, write_data=True):
         with open(os.path.join(convergence_dir, "convergence_data.json"), "w") as f:
             json.dump(convergence_data, f)
     return convergence_data
+
+
+def plot_convergence(x, y, xlabel, ylabel, title, convergence_tolerance=0.0005):
+
+    data = np.zeros((len(x), 2))
+    data[:, 0] = x
+    data[:, 1] = y
+
+    data = dj.column_sort(data, 0)
+
+    plt.scatter(data[:, 0], data[:, 1], color="xkcd:crimson")
+    plt.hlines(
+        data[-1, 1] + convergence_tolerance, min(x), max(x), linestyle="--", color="k"
+    )
+    plt.hlines(
+        data[-1, 1] - convergence_tolerance, min(x), max(x), linestyle="--", color="k"
+    )
+    plt.xlabel(xlabel, fontsize=22)
+    plt.ylabel(ylabel, fontsize=22)
+    plt.title(title, fontsize=30)
+    fig = plt.gcf()
+    fig.set_size_inches(13, 10)
+    return fig
