@@ -493,8 +493,8 @@ def predict_free_energy_crossing(heating_run, cooling_run):
         cooling_run(djlib.mc.cooling_run): Cooling run object defined in djlib.mc
     Returns:
         tuple(
-            t_intersect_predict
-
+            t_intersect_predict,
+            energy_intersect_predict, composition_intersect_predict
         )
 
     """
@@ -503,7 +503,7 @@ def predict_free_energy_crossing(heating_run, cooling_run):
         heating_run.integ_grand_canonical.shape[0]
         == heating_run.t.shape[0]
         == cooling_run.integ_grand_canonical.shape[0]
-        == cooling_run.t.shape[0]
+        == cooling_run.t.shape[0] == heating_run.x.shape[0] == cooling_run.x.shape[0]
     ):
 
         find_intersection = False
@@ -515,6 +515,7 @@ def predict_free_energy_crossing(heating_run, cooling_run):
             cooling_run.integ_grand_canonical = np.flip(
                 cooling_run.integ_grand_canonical
             )
+            cooling_run.x = np.flip(cooling_run.x)
 
             # If the temperature axes still aren't the same, cancel the function.
             if np.allclose(heating_run.t, cooling_run.t):
@@ -533,9 +534,11 @@ def predict_free_energy_crossing(heating_run, cooling_run):
             interp_heating = scipy.interpolate.InterpolatedUnivariateSpline(
                 heating_run.t, heating_run.integ_grand_canonical
             )
+            interp_heating_comp = scipy.interpolate.InterpolatedUnivariateSpline(heating_run.t, heating_run.x)
             interp_cooling = scipy.interpolate.InterpolatedUnivariateSpline(
                 cooling_run.t, cooling_run.integ_grand_canonical
             )
+            interp_cooling_comp = scipy.interpolate.InterpolatedUnivariateSpline(cooling_run.t, cooling_run.x)
 
             # define a difference function to calculate the root
             def difference(t):
@@ -554,8 +557,9 @@ def predict_free_energy_crossing(heating_run, cooling_run):
             # Calculate the intersection point
             t_intersect_predict = scipy.optimize.fsolve(difference, x0=t0_guess)
             energy_intersect_predict = interp_heating(t_intersect_predict)
+            composition_intersect_predict = interp_heating_comp(t_intersect_predict)
 
-            return (t_intersect_predict, energy_intersect_predict)
+            return (t_intersect_predict, energy_intersect_predict, composition_intersect_predict)
 
     else:
         print(
