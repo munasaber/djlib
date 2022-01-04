@@ -383,6 +383,95 @@ def run_eci_monte_carlo(
     return results
 
 
+def find_proposed_ground_states(
+    corr, comp, formation_energy, eci_set,
+):
+    """Collects indices of configurations that fall 'below the cluster expansion prediction of DFT-determined hull configurations'.  
+
+    Parameters
+    ----------
+    corr: numpy.ndarray
+        CASM nxk correlation matrix, n = number of configurations, k = number of ECI. Order matters.
+
+    comp: numpy.ndarray
+        nxl matrix of compositions, n = number of configurations, l = number of varying species
+
+    formation_energy: numpy.ndarray
+        Vector of n DFT-calculated formation energies. Order matters.
+
+    eci_set: numpy.ndarray
+        mxk matrix, m = number of monte carlo sampled ECI sets, k = number of ECI. 
+
+
+    Returns
+    -------
+        proposed_ground_state_indices: numpy.ndarray
+            Vector of indices denoting configurations which appeared below the DFT hull across all of the Monte Carlo steps.   
+    """
+
+    # Read data from casm query json output
+    # data = read_corr_comp_formation(corr_comp_energy_file)
+    # corr = data["corr"]
+    # formation_energy = data["formation_energy"]
+    # comp = data["comp"]
+
+    proposed_ground_states_indices = np.array([])
+
+    # Dealing with compatibility: Different descriptors for un-calculated formation energy (1.1.2->{}, 1.2-> null (i.e. None))
+    uncalculated_energy_descriptor = None
+    if {} in formation_energy:
+        uncalculated_energy_descriptor = {}
+
+    # Downsampling only the calculated configs:
+    downsample_selection = formation_energy != uncalculated_energy_descriptor
+    corr_calculated = corr[downsample_selection]
+    formation_energy_calculated = formation_energy[downsample_selection]
+    comp_calculated = comp[downsample_selection]
+
+    # Find and store correlations for DFT-predicted hull states:
+    points = np.zeros(
+        (formation_energy_calculated.shape[0], comp_calculated.shape[1] + 1)
+    )
+    points[:, 0:-1] = comp_calculated
+    points[:, -1] = formation_energy_calculated
+    hull = ConvexHull(points)
+    dft_hull_simplices, dft_hull_config_indices = lower_hull(hull, energy_index=-2)
+    dft_hull_corr = corr_calculated[dft_hull_config_indices]
+    dft_hull_vertices = hull.points[dft_hull_config_indices]
+
+    # Temporarily removed- requires too much memory
+    # sampled_hulldist = []
+
+    # Collect proposed ground state indices
+    for current_eci in eci_set:
+        full_predicted_energy = np.matmul(corr, current_eci)
+
+        # Predict energies of DFT-determined hull configs using current ECI selection
+        dft_hull_clex_predict_energies = np.matmul(dft_hull_corr, current_eci)
+
+        hulldist = checkhull(
+            dft_hull_vertices[:, 0:-1],
+            dft_hull_clex_predict_energies,
+            comp,
+            full_predicted_energy,
+        )
+
+        # Temporarily removed. Requires too much memory
+        # sampled_hulldist.append(hulldist)
+
+        # Find configurations that break the convex hull
+        below_hull_selection = hulldist < 0
+        below_hull_indices = np.ravel(np.array(below_hull_selection.nonzero()))
+        proposed_ground_states_indices = np.concatenate(
+            (proposed_ground_states_indices, below_hull_indices)
+        )
+    return proposed_ground_states_indices
+
+
+def energy_stddev_statistics():
+    """"""
+
+
 def plot_eci_hist(eci_data):
     plt.hist(x=eci_data, bins="auto", color="xkcd:crimson", alpha=0.7, rwidth=0.85)
 
@@ -665,3 +754,35 @@ with open('$eci_output_file', "wb") as f:
         eci_output_file=eci_output_file,
     )
     return executable_file
+
+
+def plot_eci_uncertainty(eci, title=False):
+    """
+    Parameters
+    ----------
+    eci: numpy.array
+        nxm matrix of ECI values: m sets of n ECI
+
+    Returns
+    -------
+    fig: matplotlib.pyplot figure
+    """
+    stats = np.array([[np.mean(row), np.std(row)] for row in eci])
+    print(stats.shape)
+    means = stats[:, 0]
+    std = stats[:, 1]
+    index = list(range(eci.shape[0]))
+
+    plt.scatter(index, means, color="xkcd:crimson")
+    plt.errorbar(index, means, std, ls="none", color="k")
+
+    plt.xlabel("ECI index (arbitrary)", fontsize=22)
+    plt.ylabel("ECI magnitude (eV)", fontsize=22)
+    if title:
+        plt.title(title, fontsize=30)
+    else:
+        plt.title("STAN ECI", fontsize=30)
+    fig = plt.gcf()
+    fig.set_size_inches(15, 10)
+
+    return fig
