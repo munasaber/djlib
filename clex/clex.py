@@ -469,7 +469,7 @@ def find_proposed_ground_states(
 
 
 def energy_stddev_statistics():
-    """"""
+    """Collects standard deviations of """
 
 
 def plot_eci_hist(eci_data):
@@ -651,9 +651,18 @@ def format_stan_model(
     likelihood_variance_prior="gamma",
 ):
     """
-
     Parameters
     ----------
+    eci_variance_args: tuple
+        arguments for gamma distribution as a tuple. eg. eci_variance_args = (1,1)
+    likelihood_variance_args: tuple
+        arguments for gamma distribution as a tuple. eg. eci_variance_args = (1,1)
+    eci_prior: string
+        Distribution type for ECI priors
+    eci_variance_prior: string
+        Distribution type for ECI variance prior
+    likelihood_variance_prior: string
+        Distribution type for likelihood variance prior
 
     Returns
     -------
@@ -711,6 +720,16 @@ def format_stan_executable_script(
     """
     Parameters
     ----------
+    data_file: string
+        Path to casm query output containing correlations, compositions and formation energies
+    stan_model_file: string
+        Path to text file containing stan model specifics
+    eci_output_file: string
+        Path to file where Stan will write the sampled ECI
+    num_samples: int
+        Number of samples in the stan monte carlo process
+    num_chains: int
+        Number of simultaneous markov chains 
 
     Returns
     -------
