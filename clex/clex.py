@@ -472,9 +472,10 @@ def energy_stddev_statistics():
     """Collects standard deviations of """
 
 
-def plot_eci_hist(eci_data):
+def plot_eci_hist(eci_data, xmin=None, xmax=None):
     plt.hist(x=eci_data, bins="auto", color="xkcd:crimson", alpha=0.7, rwidth=0.85)
-
+    if xmin and xmax:
+        plt.xlim(xmin, xmax)
     plt.xlabel("ECI value (eV)", fontsize=18)
     plt.ylabel("Count", fontsize=18)
     # plt.show()
