@@ -92,6 +92,32 @@ class poscar:
         newPoscar.close()
 
 
+def casm_query_reader(casm_query_json_path):
+    """Reads keys and values from casm query json dictionary. 
+    Parameters:
+    -----------
+    casm_query_json_path: str
+        Absolute path to casm query json file. 
+    
+    Returns:
+    results: dict
+        Dictionary of all data grouped by keys (not grouped by configuraton)
+    """
+    with open(casm_query_json_path) as f:
+        data = json.load(f)
+    keys = data[0].keys()
+    data_collect = []
+    for i in range(len(keys)):
+        data_collect.append([])
+    
+    for element_dict in data:
+        for index, key in enumerate(keys):
+            data_collect[index].append(element_dict[key])
+
+    results = dict(zip(keys, data_collect))    
+    return results 
+
+
 def parse_outcar(outcar):
     """
     Parameters
@@ -276,3 +302,27 @@ def plot_convergence(x, y, xlabel, ylabel, title, convergence_tolerance=0.0005):
     fig = plt.gcf()
     fig.set_size_inches(13, 10)
     return fig
+
+
+def collect_contcars(config_list_json, casm_root_path,  deposit_directory):
+    """Copies CONTCAR files for the specified configurations to a single directory: (Useful for collecting and examining ground state configuratin CONTCARS)
+
+    Parameters:
+    -----------
+    config_list_json: str
+        Path to a casm query output json containing the configurations of interest. 
+    
+    casm_root_path: str
+        Path to the main directory of a CASM project. 
+    
+    deposit_directory: str
+        Path to the directory where the CONTCARs should be copied. 
+
+    Returns:
+    --------
+    None.
+    """
+
+    #os.makedirs(deposit_directory, exist_ok=True)
+    
+
