@@ -384,9 +384,12 @@ def run_eci_monte_carlo(
 
 
 def find_proposed_ground_states(
-    corr, comp, formation_energy, eci_set,
+    corr,
+    comp,
+    formation_energy,
+    eci_set,
 ):
-    """Collects indices of configurations that fall 'below the cluster expansion prediction of DFT-determined hull configurations'.  
+    """Collects indices of configurations that fall 'below the cluster expansion prediction of DFT-determined hull configurations'.
 
     Parameters
     ----------
@@ -400,13 +403,13 @@ def find_proposed_ground_states(
         Vector of n DFT-calculated formation energies. Order matters.
 
     eci_set: numpy.ndarray
-        mxk matrix, m = number of monte carlo sampled ECI sets, k = number of ECI. 
+        mxk matrix, m = number of monte carlo sampled ECI sets, k = number of ECI.
 
 
     Returns
     -------
         proposed_ground_state_indices: numpy.ndarray
-            Vector of indices denoting configurations which appeared below the DFT hull across all of the Monte Carlo steps.   
+            Vector of indices denoting configurations which appeared below the DFT hull across all of the Monte Carlo steps.
     """
 
     # Read data from casm query json output
@@ -469,7 +472,7 @@ def find_proposed_ground_states(
 
 
 def energy_stddev_statistics():
-    """Collects standard deviations of """
+    """Collects standard deviations of"""
 
 
 def plot_eci_hist(eci_data, xmin=None, xmax=None):
@@ -730,7 +733,7 @@ def format_stan_executable_script(
     num_samples: int
         Number of samples in the stan monte carlo process
     num_chains: int
-        Number of simultaneous markov chains 
+        Number of simultaneous markov chains
 
     Returns
     -------
@@ -807,26 +810,26 @@ def plot_eci_uncertainty(eci, title=False):
 
     return fig
 
-    def write_eci_json(eci, basis_json_path, output_dict):
-        """Writes supplied ECI to the eci.json file for use in grand canonical monte carlo. Written for CASM 1.2.0
 
-        Parameters:
-        -----------
-        eci: numpy.ndarray
-            Vector of ECI values.
-        
-        basis_json_path: str
-            Path to the casm-generated basis.json file.
+def write_eci_json(eci, basis_json_path, output_dict):
+    """Writes supplied ECI to the eci.json file for use in grand canonical monte carlo. Written for CASM 1.2.0
 
-        output_path: dict
-            Formatted ECI dictionary. Can be written directly to CASM_root/cluster_expansions/clex.formation_energy/calctype.default/ref.default/bset.default/eci.default
-        """
+    Parameters:
+    -----------
+    eci: numpy.ndarray
+        Vector of ECI values.
 
-        with open(basis_json_path) as f:
-            data = json.load(f)
+    basis_json_path: str
+        Path to the casm-generated basis.json file.
 
-        for index, orbit in enumerate(data["orbits"]):
-            data["orbits"][index]["cluster_functions"]["eci"] = eci[index]
+    output_path: dict
+        Formatted ECI dictionary. Can be written directly to CASM_root/cluster_expansions/clex.formation_energy/calctype.default/ref.default/bset.default/eci.default
+    """
 
-        return data
+    with open(basis_json_path) as f:
+        data = json.load(f)
 
+    for index, orbit in enumerate(data["orbits"]):
+        data["orbits"][index]["cluster_functions"]["eci"] = eci[index]
+
+    return data
