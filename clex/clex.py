@@ -806,3 +806,27 @@ def plot_eci_uncertainty(eci, title=False):
     fig.set_size_inches(15, 10)
 
     return fig
+
+    def write_eci_json(eci, basis_json_path, output_dict):
+        """Writes supplied ECI to the eci.json file for use in grand canonical monte carlo. Written for CASM 1.2.0
+
+        Parameters:
+        -----------
+        eci: numpy.ndarray
+            Vector of ECI values.
+        
+        basis_json_path: str
+            Path to the casm-generated basis.json file.
+
+        output_path: dict
+            Formatted ECI dictionary. Can be written directly to CASM_root/cluster_expansions/clex.formation_energy/calctype.default/ref.default/bset.default/eci.default
+        """
+
+        with open(basis_json_path) as f:
+            data = json.load(f)
+
+        for index, orbit in enumerate(data["orbits"]):
+            data["orbits"][index]["cluster_functions"]["eci"] = eci[index]
+
+        return data
+
