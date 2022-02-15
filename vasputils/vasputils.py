@@ -1,3 +1,5 @@
+from distutils.command.config import config
+import shutil
 import numpy as np
 import os
 import json
@@ -109,13 +111,13 @@ def casm_query_reader(casm_query_json_path):
     data_collect = []
     for i in range(len(keys)):
         data_collect.append([])
-    
+
     for element_dict in data:
         for index, key in enumerate(keys):
             data_collect[index].append(element_dict[key])
 
-    results = dict(zip(keys, data_collect))    
-    return results 
+    results = dict(zip(keys, data_collect))
+    return results
 
 
 def parse_outcar(outcar):
@@ -304,12 +306,12 @@ def plot_convergence(x, y, xlabel, ylabel, title, convergence_tolerance=0.0005):
     return fig
 
 
-def collect_contcars(config_list_json, casm_root_path,  deposit_directory):
+def collect_final_contcars(config_list_json_path, casm_root_path, deposit_directory):
     """Copies CONTCAR files for the specified configurations to a single directory: (Useful for collecting and examining ground state configuratin CONTCARS)
 
     Parameters:
     -----------
-    config_list_json: str
+    config_list_json_path: str
         Path to a casm query output json containing the configurations of interest. 
     
     casm_root_path: str
@@ -323,6 +325,24 @@ def collect_contcars(config_list_json, casm_root_path,  deposit_directory):
     None.
     """
 
-    #os.makedirs(deposit_directory, exist_ok=True)
-    
+    os.makedirs(deposit_directory, exist_ok=True)
+    query_data = casm_query_reader(config_list_json_path)
+    config_names = query_data["name"]
+
+    for name in config_names:
+        try:
+            contcar_path = os.path.join(
+                casm_root_path,
+                "training_data",
+                name,
+                "calctype.default/run.final",
+                "CONTCAR",
+            )
+            destination = os.path.join(
+                deposit_directory,
+                name.split("/")[0] + "_" + name.split("/")[-1] + ".vasp",
+            )
+            shutil.copy(contcar_path, destination)
+        except:
+            print("could not find %s " % contcar_path)
 
