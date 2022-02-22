@@ -117,6 +117,9 @@ def casm_query_reader(casm_query_json_path):
             data_collect[index].append(element_dict[key])
 
     results = dict(zip(keys, data_collect))
+    if "comp" in results.keys():
+        if len(results["comp"].shape) > 2:
+            results["comp"] = np.squeeze(results["comp"])
     return results
 
 
