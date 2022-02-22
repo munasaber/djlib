@@ -17,7 +17,7 @@
     "_N_sample" : 1000, 
     "_N_pass" : 1000,
     "_N_step" : 1000,
-    "_max_pass" : 10000,
+    "_max_paIss" : 6000,
     "min_pass" : 1000,
     "_max_step" : 10000,
     "_max_sample" : 500,
@@ -41,7 +41,13 @@
         "precision" : 1e-3
       },
       { 
-        "quantity" : "comp_n"
+        "quantity" : "comp_n(Li)"
+      }, 
+      {
+ 	"quantity": "relaxed_energy"
+      }, 
+      {
+	"quantity": "all_correlations"
       }
     ],
     "storage" : {

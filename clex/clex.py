@@ -81,6 +81,52 @@ def read_corr_comp_formation(datafile):
     }
     return results
 
+def read_corr_comp_formation_2x(datafile):
+    """
+    read_corr_and_formation_energy(datafile)
+
+    Reads and returns data from json containing correlation functions and formation energies.
+    Args:
+        datafile(str): Path to the json file containing the correlation functions and formation energies.
+    Returns:
+        tuple(
+            corr,                   (ndarray): Correlation functions: nxm matrix of correlation funcitons: each row corresponds to a configuration.
+            formation_energy,       (ndarray): Formation energies: vecrtor of n elements: one for each configuration.
+            scel_names              (ndarray): The name for a given configuration. Vector of n elements.
+        )
+    """
+    with open(datafile) as f:
+        data = json.load(f)
+
+    corr = []
+    formation_energy = []
+    scel_names = []
+    comp = []
+    # TODO: add flexibility for absence of some keys in the json file
+    for entry in data:
+        if "corr" in entry.keys():
+            corr.append(np.array(entry["corr"]).flatten())
+        if "formation_energy" in entry.keys():
+            # Dealing with compatibility: Different descriptors for un-calculated formation energy (1.1.2->{}, 1.2-> null (i.e. None))
+            if {} in entry.values():
+                formation_energy.append(None)
+            else:
+                formation_energy.append(entry["formation_energy"])
+        if "configname" in entry.keys():
+            scel_names.append(entry["configname"])
+        if "comp" in entry.keys():
+            comp.append(entry["comp"][0])  # Assumes a binary
+    corr = np.array(corr)
+    formation_energy = np.array(formation_energy)
+    scel_names = np.array(scel_names)
+    comp = np.array(comp)
+    results = {
+        "corr": corr,
+        "formation_energy": formation_energy,
+        "names": scel_names,
+        "comp": comp,
+    }
+    return results
 
 def lower_hull(hull, energy_index=-2):
     """Returns the lower convex hull (with respect to energy direction) given  complete convex hull.
@@ -745,7 +791,7 @@ import djlib.clex as cl
 
 # Load Casm Data
 data_file = '$data_file'
-data = cl.read_corr_comp_formation(data_file)
+data = cl.read_corr_comp_formation_2x(data_file)
 corr = tuple(map(tuple, data["corr"]))
 energies = tuple(data["formation_energy"])
 
