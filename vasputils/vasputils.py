@@ -1,4 +1,3 @@
-from distutils.command.config import config
 import shutil
 import numpy as np
 import os
@@ -349,4 +348,32 @@ def collect_final_contcars(config_list_json_path, casm_root_path, deposit_direct
             shutil.copy(contcar_path, destination)
         except:
             print("could not find %s " % contcar_path)
+
+
+def reset_calc_staus(unknowns_file, casm_root):
+    """For runs that failed and must be re-submitted; resets status to 'not_submitted'
+
+    Parameters:
+    -----------
+    unknowns_file: str
+        Path to casm query output of configurations to be reset. 
+    casm_root: str
+        Path to casm project root. 
+
+    Returns:
+    --------
+    None.
+    """
+    query_data = casm_query_reader(unknowns_file)
+    names = query_data["name"]
+
+    for name in names:
+        status_file = os.path.join(
+            casm_root, "training_data", name, "calctype.default", "status.json"
+        )
+        with open(status_file, "r") as f:
+            status = json.load(f)
+        status["status"] = "not_submitted"
+        with open(status_file, "w") as f:
+            json.dump(status, f)
 
