@@ -73,12 +73,16 @@ def update_properties_files(casm_root_dir):
                 with open(properties_path) as f:
                     properties = json.load(f)
                 properties["coordinate_mode"] = properties["coord_mode"]
+                if properties["atom_properties"]["force"]["value"]=[]:
+                    properties["atom_properties"]["force"]["value"]=[[0.0,0.0,0.0]]
+                    print("Fixed empty forces in %s" % config)
                 with open(
                     os.path.join(config, "calctype.default/properties.calc.json"), "w"
                 ) as f:
                     json.dump(properties, f, indent="")
             else:
                 print("Could not find %s" % properties_path)
+
 
 
 def move_calctype_dirs(casm_root_dir):
