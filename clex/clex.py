@@ -59,6 +59,7 @@ def read_corr_comp_formation(datafile):
     formation_energy = []
     scel_names = []
     comp = []
+    clex = []
     # TODO: add flexibility for absence of some keys in the json file
     for entry in data:
         if "corr" in entry.keys():
@@ -69,15 +70,19 @@ def read_corr_comp_formation(datafile):
             scel_names.append(entry["name"])
         if "comp" in entry.keys():
             comp.append(entry["comp"][0])  # Assumes a binary
+        if "clex()" in entry.keys():
+            clex.append(entry["clex()"])
     corr = np.array(corr)
     formation_energy = np.array(formation_energy)
     scel_names = np.array(scel_names)
     comp = np.array(comp)
+    clex = np.array(clex)
     results = {
         "corr": corr,
         "formation_energy": formation_energy,
         "names": scel_names,
         "comp": comp,
+        "clex": clex
     }
     return results
 
