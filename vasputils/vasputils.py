@@ -1,3 +1,4 @@
+import shutil
 import numpy as np
 import os
 import json
@@ -90,6 +91,36 @@ class poscar:
                         newPoscar.write(str(element) + " ")
                     newPoscar.write("\n")
         newPoscar.close()
+
+
+def casm_query_reader(casm_query_json_path):
+    """Reads keys and values from casm query json dictionary. 
+    Parameters:
+    -----------
+    casm_query_json_path: str
+        Absolute path to casm query json file. 
+    
+    Returns:
+    results: dict
+        Dictionary of all data grouped by keys (not grouped by configuraton)
+    """
+    with open(casm_query_json_path) as f:
+        data = json.load(f)
+    keys = data[0].keys()
+    data_collect = []
+    for i in range(len(keys)):
+        data_collect.append([])
+
+    for element_dict in data:
+        for index, key in enumerate(keys):
+            data_collect[index].append(element_dict[key])
+
+    results = dict(zip(keys, data_collect))
+    if "comp" in results.keys():
+        comp = np.array(results["comp"])
+        if len(comp.shape) > 2:
+            results["comp"] = np.squeeze(comp).tolist()
+    return results
 
 
 def parse_outcar(outcar):
@@ -276,3 +307,73 @@ def plot_convergence(x, y, xlabel, ylabel, title, convergence_tolerance=0.0005):
     fig = plt.gcf()
     fig.set_size_inches(13, 10)
     return fig
+
+
+def collect_final_contcars(config_list_json_path, casm_root_path, deposit_directory):
+    """Copies CONTCAR files for the specified configurations to a single directory: (Useful for collecting and examining ground state configuratin CONTCARS)
+
+    Parameters:
+    -----------
+    config_list_json_path: str
+        Path to a casm query output json containing the configurations of interest. 
+    
+    casm_root_path: str
+        Path to the main directory of a CASM project. 
+    
+    deposit_directory: str
+        Path to the directory where the CONTCARs should be copied. 
+
+    Returns:
+    --------
+    None.
+    """
+
+    os.makedirs(deposit_directory, exist_ok=True)
+    query_data = casm_query_reader(config_list_json_path)
+    config_names = query_data["name"]
+
+    for name in config_names:
+        try:
+            contcar_path = os.path.join(
+                casm_root_path,
+                "training_data",
+                name,
+                "calctype.default/run.final",
+                "CONTCAR",
+            )
+            destination = os.path.join(
+                deposit_directory,
+                name.split("/")[0] + "_" + name.split("/")[-1] + ".vasp",
+            )
+            shutil.copy(contcar_path, destination)
+        except:
+            print("could not find %s " % contcar_path)
+
+
+def reset_calc_staus(unknowns_file, casm_root):
+    """For runs that failed and must be re-submitted; resets status to 'not_submitted'
+
+    Parameters:
+    -----------
+    unknowns_file: str
+        Path to casm query output of configurations to be reset. 
+    casm_root: str
+        Path to casm project root. 
+
+    Returns:
+    --------
+    None.
+    """
+    query_data = casm_query_reader(unknowns_file)
+    names = query_data["name"]
+
+    for name in names:
+        status_file = os.path.join(
+            casm_root, "training_data", name, "calctype.default", "status.json"
+        )
+        with open(status_file, "r") as f:
+            status = json.load(f)
+        status["status"] = "not_submitted"
+        with open(status_file, "w") as f:
+            json.dump(status, f)
+
