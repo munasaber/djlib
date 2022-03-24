@@ -107,3 +107,4 @@ def move_calctype_dirs(casm_root_dir):
                     "rm -r %s"
                     % os.path.join(config, "calctype.default/calctype.default")
                 )
+
