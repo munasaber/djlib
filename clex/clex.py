@@ -59,6 +59,7 @@ def read_corr_comp_formation(datafile):
     formation_energy = []
     scel_names = []
     comp = []
+    clex = []
     # TODO: add flexibility for absence of some keys in the json file
     for entry in data:
         if "corr" in entry.keys():
@@ -69,15 +70,19 @@ def read_corr_comp_formation(datafile):
             scel_names.append(entry["name"])
         if "comp" in entry.keys():
             comp.append(entry["comp"][0])  # Assumes a binary
+        if "clex()" in entry.keys():
+            clex.append(entry["clex()"])
     corr = np.array(corr)
     formation_energy = np.array(formation_energy)
     scel_names = np.array(scel_names)
     comp = np.array(comp)
+    clex = np.array(clex)
     results = {
         "corr": corr,
         "formation_energy": formation_energy,
         "names": scel_names,
         "comp": comp,
+        "clex": clex
     }
     return results
 
@@ -430,9 +435,12 @@ def run_eci_monte_carlo(
 
 
 def find_proposed_ground_states(
-    corr, comp, formation_energy, eci_set,
+    corr,
+    comp,
+    formation_energy,
+    eci_set,
 ):
-    """Collects indices of configurations that fall 'below the cluster expansion prediction of DFT-determined hull configurations'.  
+    """Collects indices of configurations that fall 'below the cluster expansion prediction of DFT-determined hull configurations'.
 
     Parameters
     ----------
@@ -446,13 +454,13 @@ def find_proposed_ground_states(
         Vector of n DFT-calculated formation energies. Order matters.
 
     eci_set: numpy.ndarray
-        mxk matrix, m = number of monte carlo sampled ECI sets, k = number of ECI. 
+        mxk matrix, m = number of monte carlo sampled ECI sets, k = number of ECI.
 
 
     Returns
     -------
         proposed_ground_state_indices: numpy.ndarray
-            Vector of indices denoting configurations which appeared below the DFT hull across all of the Monte Carlo steps.   
+            Vector of indices denoting configurations which appeared below the DFT hull across all of the Monte Carlo steps.
     """
 
     # Read data from casm query json output
@@ -515,7 +523,7 @@ def find_proposed_ground_states(
 
 
 def energy_stddev_statistics():
-    """Collects standard deviations of """
+    """Collects standard deviations of"""
 
 
 def plot_eci_hist(eci_data, xmin=None, xmax=None):
@@ -776,7 +784,7 @@ def format_stan_executable_script(
     num_samples: int
         Number of samples in the stan monte carlo process
     num_chains: int
-        Number of simultaneous markov chains 
+        Number of simultaneous markov chains
 
     Returns
     -------
@@ -852,3 +860,29 @@ def plot_eci_uncertainty(eci, title=False):
     fig.set_size_inches(15, 10)
 
     return fig
+
+
+def write_eci_json(eci, basis_json_path):
+    """Writes supplied ECI to the eci.json file for use in grand canonical monte carlo. Written for CASM 1.2.0
+
+    Parameters:
+    -----------
+    eci: numpy.ndarray
+        Vector of ECI values.
+
+    basis_json_path: str
+        Path to the casm-generated basis.json file.
+
+    Returns:
+    --------
+    data: dict
+        basis.json dictionary formatted with provided eci's
+    """
+
+    with open(basis_json_path) as f:
+        data = json.load(f)
+
+    for index, orbit in enumerate(data["orbits"]):
+        data["orbits"][index]["cluster_functions"]["eci"] = eci[index]
+
+    return data

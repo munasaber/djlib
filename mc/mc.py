@@ -321,7 +321,7 @@ def run_cooling_from_const_temperature(
     const_temp_run_dir,
     temp_final=20,
     temperature_increment=-5,
-    run_location="local",
+    job_scheduler="slurm",
 ):
 
     # read mu values, temperature information from the existing settings file
@@ -363,7 +363,7 @@ def run_cooling_from_const_temperature(
             )
 
             # Run MC cooling
-            if run_location == "local":
+            if job_scheduler == "slurm":
                 user_command = "casm monte -s mc_settings.json > mc_results.out"
                 format_slurm_job(
                     jobname="cool_" + run_name,
@@ -373,7 +373,7 @@ def run_cooling_from_const_temperature(
                     delete_submit_script=False,
                 )
                 submit_slurm_job(current_dir)
-            elif run_location == "braid":
+            elif job_scheduler == "braid":
                 user_command = "casm monte -s mc_settings.json > mc_results.out"
                 format_pbs_job(
                     jobname=run_name,
@@ -383,7 +383,7 @@ def run_cooling_from_const_temperature(
                     delete_submit_script=False,
                 )
                 submit_pbs_job(current_dir)
-            elif run_location == "pod":
+            elif job_scheduler == "pod":
                 print("In the works")
             """
             print("Submitting: ", end="")
@@ -503,7 +503,9 @@ def predict_free_energy_crossing(heating_run, cooling_run):
         heating_run.integ_grand_canonical.shape[0]
         == heating_run.t.shape[0]
         == cooling_run.integ_grand_canonical.shape[0]
-        == cooling_run.t.shape[0] == heating_run.x.shape[0] == cooling_run.x.shape[0]
+        == cooling_run.t.shape[0]
+        == heating_run.x.shape[0]
+        == cooling_run.x.shape[0]
     ):
 
         find_intersection = False
@@ -534,11 +536,15 @@ def predict_free_energy_crossing(heating_run, cooling_run):
             interp_heating = scipy.interpolate.InterpolatedUnivariateSpline(
                 heating_run.t, heating_run.integ_grand_canonical
             )
-            interp_heating_comp = scipy.interpolate.InterpolatedUnivariateSpline(heating_run.t, heating_run.x)
+            interp_heating_comp = scipy.interpolate.InterpolatedUnivariateSpline(
+                heating_run.t, heating_run.x
+            )
             interp_cooling = scipy.interpolate.InterpolatedUnivariateSpline(
                 cooling_run.t, cooling_run.integ_grand_canonical
             )
-            interp_cooling_comp = scipy.interpolate.InterpolatedUnivariateSpline(cooling_run.t, cooling_run.x)
+            interp_cooling_comp = scipy.interpolate.InterpolatedUnivariateSpline(
+                cooling_run.t, cooling_run.x
+            )
 
             # define a difference function to calculate the root
             def difference(t):
@@ -559,7 +565,11 @@ def predict_free_energy_crossing(heating_run, cooling_run):
             energy_intersect_predict = interp_heating(t_intersect_predict)
             composition_intersect_predict = interp_heating_comp(t_intersect_predict)
 
-            return (t_intersect_predict, energy_intersect_predict, composition_intersect_predict)
+            return (
+                t_intersect_predict,
+                energy_intersect_predict,
+                composition_intersect_predict,
+            )
 
     else:
         print(
