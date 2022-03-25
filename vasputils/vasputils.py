@@ -400,7 +400,7 @@ def trim_unknown_energies(casm_query_json,keyword="energy"):
         A dictionary with the same keys as the input data, but with entries removed for which the key value is null.
     """
     initial_length = len(casm_query_json)
-    denulled_data = [entry for entry in casm_query_json if entry[keyword] is not None]
+    denulled_data = [entry for entry in casm_query_json if entry[keyword] is not None]#
     final_length = len(denulled_data)
-    print("Removed %d entries with null values in %s" % (initial_length - final_length, keyword))
+    print("Removed %d entries with null values with key: %s" % (initial_length - final_length, keyword))
     return denulled_data
