@@ -11,80 +11,7 @@ from glob import glob
 from tqdm import tqdm
 import pickle
 from string import Template
-
-
-# import cuml
-
-
-def read_comp_and_energy_points(datafile):
-    """Generates points in composition and energy space for use in convex hull algorithms.
-
-    Parameters
-    ----------
-    datafile : str
-        path to the casm query output json file.
-
-    Returns
-    -------
-    points: ndarray,  shape(number_configurations, number_comp_axes+1)
-        Points in composition-energy space.
-    """
-    with open(datafile) as f:
-        data = json.load(f)
-    points = [
-        [x[0] for x in entry["comp"]] + [entry["formation_energy"]] for entry in data
-    ]
-    points = np.array(points)
-    return points
-
-
-def read_corr_comp_formation(datafile):
-    """
-    read_corr_and_formation_energy(datafile)
-
-    Reads and returns data from json containing correlation functions and formation energies.
-    Args:
-        datafile(str): Path to the json file containing the correlation functions and formation energies.
-    Returns:
-        tuple(
-            corr,                   (ndarray): Correlation functions: nxm matrix of correlation funcitons: each row corresponds to a configuration.
-            formation_energy,       (ndarray): Formation energies: vecrtor of n elements: one for each configuration.
-            scel_names              (ndarray): The name for a given configuration. Vector of n elements.
-        )
-    """
-    with open(datafile) as f:
-        data = json.load(f)
-
-    corr = []
-    formation_energy = []
-    scel_names = []
-    comp = []
-    clex = []
-    # TODO: add flexibility for absence of some keys in the json file
-    for entry in data:
-        if "corr" in entry.keys():
-            corr.append(np.array(entry["corr"]).flatten())
-        if "formation_energy" in entry.keys():
-            formation_energy.append(entry["formation_energy"])
-        if "name" in entry.keys():
-            scel_names.append(entry["name"])
-        if "comp" in entry.keys():
-            comp.append(entry["comp"][0])  # Assumes a binary
-        if "clex()" in entry.keys():
-            clex.append(entry["clex()"])
-    corr = np.array(corr)
-    formation_energy = np.array(formation_energy)
-    scel_names = np.array(scel_names)
-    comp = np.array(comp)
-    clex = np.array(clex)
-    results = {
-        "corr": corr,
-        "formation_energy": formation_energy,
-        "names": scel_names,
-        "comp": comp,
-        "clex": clex
-    }
-    return results
+import djlib.vasputils as vu
 
 
 def lower_hull(hull, energy_index=-2):
@@ -273,7 +200,7 @@ def run_eci_monte_carlo(
             List of configuraton names used in the Monte Carlo calculations.
     """
     # Read data from casm query json output
-    data = read_corr_comp_formation(corr_comp_energy_file)
+    data = vu.casm_query_reader(corr_comp_energy_file)
     corr = data["corr"]
     formation_energy = data["formation_energy"]
     comp = data["comp"]
@@ -389,10 +316,7 @@ def run_eci_monte_carlo(
 
 
 def find_proposed_ground_states(
-    corr,
-    comp,
-    formation_energy,
-    eci_set,
+    corr, comp, formation_energy, eci_set,
 ):
     """Collects indices of configurations that fall 'below the cluster expansion prediction of DFT-determined hull configurations'.
 
@@ -474,10 +398,6 @@ def find_proposed_ground_states(
             (proposed_ground_states_indices, below_hull_indices)
         )
     return proposed_ground_states_indices
-
-
-def energy_stddev_statistics():
-    """Collects standard deviations of"""
 
 
 def plot_eci_hist(eci_data, xmin=None, xmax=None):
