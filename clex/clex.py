@@ -1,10 +1,12 @@
+from ntpath import join
+import djlib as dj
 import json
 import os
 import numpy as np
 from scipy.spatial import ConvexHull
 from scipy.interpolate import griddata
 import matplotlib.pyplot as plt
-from sklearn.linear_model import LassoCV
+from sklearn.linear_model import LassoCV, TheilSenRegressor
 from sklearn.metrics import mean_squared_error
 import csv
 from glob import glob
@@ -12,6 +14,7 @@ from tqdm import tqdm
 import pickle
 from string import Template
 import djlib.vasputils as vu
+from sklearn.model_selection import ShuffleSplit
 
 
 def lower_hull(hull, energy_index=-2):
@@ -573,11 +576,7 @@ def plot_clex_hull_data_1_x(
 
 
 def format_stan_model(
-    eci_variance_args,
-    likelihood_variance_args,
-    eci_prior="normal",
-    eci_variance_prior="gamma",
-    likelihood_variance_prior="gamma",
+    eci_variance_args, eci_prior="normal", eci_variance_prior="gamma"
 ):
     """
     Parameters
@@ -590,14 +589,16 @@ def format_stan_model(
         Distribution type for ECI priors
     eci_variance_prior: string
         Distribution type for ECI variance prior
-    likelihood_variance_prior: string
-        Distribution type for likelihood variance prior
 
     Returns
     -------
     model_template : str
         Formatted stan model template
     """
+
+    # Old args:
+    # likelihood_variance_args,
+    # likelihood_variance_prior="gamma",
 
     # TODO: Add filter on string arguments
 
@@ -609,12 +610,13 @@ def format_stan_model(
     assert (
         eci_variance_prior in supported_eci_variance_priors
     ), "Specified ECI variance prior is not supported."
-    assert (
-        likelihood_variance_prior in supported_model_variance_priors
-    ), "Specified model variance prior is not supported."
 
-    formatted_sigma = likelihood_variance_prior + str(likelihood_variance_args)
+    # assert (likelihood_variance_prior in supported_model_variance_priors), "Specified model variance prior is not supported."
+    # formatted_sigma = likelihood_variance_prior + str(likelihood_variance_args)
+
     formatted_eci_variance = eci_variance_prior + str(eci_variance_args)
+
+    # used to have  sigma ~ $formatted_sigma ;
     ce_model = Template(
         """data {
         int K; 
@@ -629,7 +631,7 @@ parameters {
     }
 model 
     {
-        sigma ~ $formatted_sigma ;
+        sigma = 200 ;
         for (k in 1:K){
             eci_variance[k] ~ $formatted_eci_variance ;
             eci[k] ~ normal(0,eci_variance[k]);
@@ -637,9 +639,8 @@ model
         energies ~ normal(corr * eci, sigma);
     }"""
     )
-    model_template = ce_model.substitute(
-        formatted_sigma=formatted_sigma, formatted_eci_variance=formatted_eci_variance
-    )
+    # model_template = ce_model.substitute(formatted_sigma=formatted_sigma, formatted_eci_variance=formatted_eci_variance)
+    model_template = ce_model.substitute(formatted_eci_variance=formatted_eci_variance)
     return model_template
 
 
@@ -669,12 +670,15 @@ def format_stan_executable_script(
         """
 import pickle 
 import stan
+import djlib as dj
 import djlib.clex as cl
+import numpy as np
 
 # Load Casm Data
 data_file = '$data_file'
-data = cl.read_corr_comp_formation(data_file)
-corr = tuple(map(tuple, data["corr"]))
+data = dj.casm_query_reader(data_file)
+corr = np.squeeze(np.array(data["corr"]))
+corr = tuple(map(tuple, corr))
 energies = tuple(data["formation_energy"])
 
 #Format Stan Model
@@ -702,6 +706,115 @@ with open('$eci_output_file', "wb") as f:
         eci_output_file=eci_output_file,
     )
     return executable_file
+
+
+def cross_validate_stan_model(
+    data_file,
+    num_samples,
+    eci_variance_args,
+    cross_val_directory,
+    random_seed,
+    eci_prior="normal",
+    eci_variance_prior="gamma",
+    stan_model_file="stan_model.txt",
+    eci_output_file="results.pkl",
+    num_chains=1,
+    kfold=5,
+):
+    """Perform kfold cross validation on a specific stan model. Wraps around format_stan_model() and format_stan_executable_script().
+
+    Parameters:
+    -----------
+    eci_variance_args: tuple
+        arguments for gamma distribution as a tuple. eg. eci_variance_args = (1,1)
+    eci_prior: string
+        Distribution type for ECI priors
+    eci_variance_prior: string
+        Distribution type for ECI variance prior
+    data_file: string
+        Path to casm query output containing correlations, compositions and formation energies
+    stan_model_file: string
+        Path to text file containing stan model specifics
+    eci_output_file: string
+        Path to file where Stan will write the sampled ECI
+    num_samples: int
+        Number of samples in the stan monte carlo process
+    num_chains: int
+        Number of simultaneous markov chains
+    kfold: int
+        Number of "bins" to split training data into. 
+    cross_val_directory: str
+        Path to directory where the kfold cross validation runs will write data.
+
+
+    Returns:
+    --------
+    None
+    """
+    # create directory for kfold cross validation
+    os.makedirs(cross_val_directory, exist_ok=True)
+
+    # load data
+    with open(data_file) as f:
+        data = np.array(json.load(f))
+
+    # setup kfold batches, format for stan input
+    data_length = data.shape[0]
+    ss = ShuffleSplit(n_splits=kfold, random_state=random_seed)
+    indices = range(data_length)
+
+    count = 0
+    for train_index, test_index in ss.split(indices):
+
+        # make run directory for this iteration of the kfold cross validation
+        this_run_path = os.path.join(cross_val_directory, "crossval_" + str(count))
+        os.makedirs(this_run_path)
+
+        # slice data; write training and testing data in separate files.
+        training_data = data[train_index].tolist()
+        testing_data = data[test_index].tolist()
+        training_data_path = os.path.join(this_run_path, "training_data.json")
+        with open(os.path.join(this_run_path, "training_data.json"), "w") as f:
+            json.dump(training_data, f)
+        with open(os.path.join(this_run_path, "testing_data.json"), "w") as f:
+            json.dump(testing_data, f)
+
+        # Also write training/ testing indices for easier post processing.
+        id_lists = {
+            "training_set": train_index.tolist(),
+            "test_set": test_index.tolist(),
+        }
+        with open(os.path.join(this_run_path, "id_lists.json"), "w") as f:
+            json.dump(id_lists, f)
+
+        # format and write stan model
+        formatted_stan_model = format_stan_model(
+            eci_variance_args, eci_prior, eci_variance_prior
+        )
+        with open(os.path.join(this_run_path, stan_model_file), "w") as f:
+            f.write(formatted_stan_model)
+
+        # format and write stan executable python script
+        formatted_stan_script = format_stan_executable_script(
+            stan_model_file,
+            eci_output_file,
+            num_samples,
+            training_data_path,
+            num_chains,
+        )
+        with open(os.path.join(this_run_path, "run_stan.py"), "w") as f:
+            f.write(formatted_stan_script)
+
+        # format and write slurm submission file
+        user_command = "python run_stan.py"
+        dj.mc.format_slurm_job(
+            jobname="crossval_" + str(count),
+            hours=20,
+            user_command=user_command,
+            output_dir=this_run_path,
+        )
+        dj.mc.submit_slurm_job(this_run_path)
+        count += 1
 
 
 def plot_eci_uncertainty(eci, title=False):
@@ -760,3 +873,4 @@ def write_eci_json(eci, basis_json_path):
         data["orbits"][index]["cluster_functions"]["eci"] = eci[index]
 
     return data
+
