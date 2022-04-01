@@ -604,7 +604,7 @@ def format_stan_model(
 
     supported_eci_priors = ["normal"]
     supported_eci_variance_priors = ["gamma"]
-    supported_model_variance_priors = ["gamma"]
+    # supported_model_variance_priors = ["gamma"]
 
     assert eci_prior in supported_eci_priors, "Specified ECI prior is not suported."
     assert (
@@ -627,7 +627,7 @@ def format_stan_model(
 parameters {
         vector[K] eci;
         vector<lower=0>[K] eci_variance;
-        #real<lower=0> sigma;
+        //real<lower=0> sigma;
     }
 model 
     {
@@ -778,7 +778,7 @@ def cross_validate_stan_model(
         training_data = data[train_index].tolist()
         testing_data = data[test_index].tolist()
         training_data_path = os.path.join(this_run_path, "training_data.json")
-        with open(os.path.join(this_run_path, "training_data.json"), "w") as f:
+        with open(training_data_path, "w") as f:
             json.dump(training_data, f)
         with open(os.path.join(this_run_path, "testing_data.json"), "w") as f:
             json.dump(testing_data, f)
@@ -809,7 +809,7 @@ def cross_validate_stan_model(
         # format and write slurm submission file
         user_command = "python run_stan.py"
         dj.mc.format_slurm_job(
-            jobname="crossval_" + str(count),
+            jobname="eci_var_%.4f_crossval_" % eci_variance_args[1] + str(count),
             hours=20,
             user_command=user_command,
             output_dir=this_run_path,
