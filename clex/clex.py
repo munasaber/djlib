@@ -627,11 +627,11 @@ def format_stan_model(
 parameters {
         vector[K] eci;
         vector<lower=0>[K] eci_variance;
-        real<lower=0> sigma;
+        #real<lower=0> sigma;
     }
 model 
     {
-        sigma = 200 ;
+        int sigma = 200 ;
         for (k in 1:K){
             eci_variance[k] ~ $formatted_eci_variance ;
             eci[k] ~ normal(0,eci_variance[k]);
@@ -800,12 +800,9 @@ def cross_validate_stan_model(
 
         # format and write stan executable python script
         formatted_stan_script = format_stan_executable_script(
-            stan_model_file,
-            eci_output_file,
-            num_samples,
-            training_data_path,
-            num_chains,
+            data_file, stan_model_file, eci_output_file, num_samples, num_chains=1
         )
+
         with open(os.path.join(this_run_path, "run_stan.py"), "w") as f:
             f.write(formatted_stan_script)
 
