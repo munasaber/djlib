@@ -713,39 +713,43 @@ def cross_validate_stan_model(
     num_samples,
     eci_variance_args,
     cross_val_directory,
-    random_seed,
+    random_seed=5,
     eci_prior="normal",
     eci_variance_prior="gamma",
     stan_model_file="stan_model.txt",
     eci_output_file="results.pkl",
     num_chains=1,
     kfold=5,
+    submit_with_slurm=True,
 ):
     """Perform kfold cross validation on a specific stan model. Wraps around format_stan_model() and format_stan_executable_script().
 
     Parameters:
     -----------
+    data_file: string
+        Path to casm query output containing correlations, compositions and formation energies
+    num_samples: int
+        Number of samples in the stan monte carlo process
     eci_variance_args: tuple
         arguments for gamma distribution as a tuple. eg. eci_variance_args = (1,1)
+    cross_val_directory: str
+        Path to directory where the kfold cross validation runs will write data.
+    random_seed: int
+        Random number seed for randomized kfold data splitting. Providing the same seed will result in identical training / testing data partitions.
     eci_prior: string
         Distribution type for ECI priors
     eci_variance_prior: string
         Distribution type for ECI variance prior
-    data_file: string
-        Path to casm query output containing correlations, compositions and formation energies
     stan_model_file: string
         Path to text file containing stan model specifics
     eci_output_file: string
         Path to file where Stan will write the sampled ECI
-    num_samples: int
-        Number of samples in the stan monte carlo process
     num_chains: int
         Number of simultaneous markov chains
     kfold: int
         Number of "bins" to split training data into. 
-    cross_val_directory: str
-        Path to directory where the kfold cross validation runs will write data.
-
+    submit_with_slurm: bool
+        Decides if the function will submit with slurm. Defaults to true. 
 
     Returns:
     --------
@@ -813,7 +817,8 @@ def cross_validate_stan_model(
             user_command=user_command,
             output_dir=this_run_path,
         )
-        dj.mc.submit_slurm_job(this_run_path)
+        if submit_with_slurm:
+            dj.mc.submit_slurm_job(this_run_path)
         count += 1
 
 
