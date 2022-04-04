@@ -826,12 +826,12 @@ def cross_validate_stan_model(
         count += 1
 
 
-def crossval_analysis(kfold_dir):
+def bayes_train_test_analysis(run_dir):
     """Calculates training and testing rms for cross validated fitting.
 
     Parameters:
     -----------
-    kfold_dir: str
+    run_dir: str
         Path to single set of partitioned data and the corresponding results.
 
     Returns:
@@ -841,16 +841,22 @@ def crossval_analysis(kfold_dir):
             RMS values for each ECI vector compared against training data.
         testing_rms: numpy.ndarray
             RMS values for each ECI vector compared against testing data.
-        training_indices: numpy.ndarray
+        training_set: numpy.ndarray
             Indices of configurations partitioned as training data from the original dataset.
-        testing_indices:
+        test_set:
             Indices of configurations partitioned as testing data from the original dataset.
+        eci_variance_args: list
+            Arguments for ECI prior distribution. Currently assumes Gamma distribution with two arguments: first argument is the gamma shape parameter, second argument is the gamma shrinkage parameter.
+        data_source: str
+            Path to the original data file used to generate the training and testing datasets.
+        random_seed: int
+            Value used for the random seed generator.
     }
     """
 
     # Load training and testing data
-    testing_data = dj.casm_query_reader(os.path.join(kfold_dir, "testing_data.json"))
-    training_data = dj.casm_query_reader(os.path.join(kfold_dir, "training_data.json"))
+    testing_data = dj.casm_query_reader(os.path.join(run_dir, "testing_data.json"))
+    training_data = dj.casm_query_reader(os.path.join(run_dir, "training_data.json"))
 
     training_corr = np.squeeze(np.array(training_data["corr"]))
     training_energies = np.array(training_data["formation_energy"])
@@ -858,10 +864,10 @@ def crossval_analysis(kfold_dir):
     testing_corr = np.squeeze(np.array(testing_data["corr"]))
     testing_energies = np.array(testing_data["formation_energy"])
 
-    with open(os.path.join(kfold_dir, "results.pkl"), "rb") as f:
+    with open(os.path.join(run_dir, "results.pkl"), "rb") as f:
         eci = pickle.load(f)["eci"]
 
-    train_data_predict = np.tanspose(training_corr @ eci)
+    train_data_predict = np.transpose(training_corr @ eci)
     test_data_predict = np.transpose(testing_corr @ eci)
 
     # Calculate rms for training and testing datasets
@@ -877,6 +883,42 @@ def crossval_analysis(kfold_dir):
             for i in range(test_data_predict.shape[0])
         ]
     )
+
+    # Collect parameters unique to this kfold run
+    with open(os.path.join(run_dir, "run_info.json"), "r") as f:
+        run_info = json.load(f)
+
+    # Collect all run information in a single dictionary and return.
+    kfold_data = {}
+    kfold_data.update({"training_rms": training_rms, "testing_rms": testing_rms})
+    kfold_data.update(run_info)
+    return kfold_data
+
+
+def kfold_analysis(kfold_dir):
+    """Collects statistics across k fits.
+
+    Parameters:
+    -----------
+    kfold_dir: str
+        Path to directory containing the k bayesian calibration runs as subdirectories.
+
+    Returns:
+    --------
+    train_rms: np.array
+        Average training rms value for each of the k fitting runs.
+    test_rms: np.array
+        Average testing rms value for each of the k fitting runs.
+    """
+    train_rms_values = []
+    test_rms_values = []
+    kfold_subdirs = glob(os.path.join(kfold_dir, "*"))
+    for run_dir in kfold_subdirs:
+        if os.path.isdir(run_dir):
+            run_data = bayes_train_test_analysis(run_dir)
+            train_rms_values.append(np.mean(run_data["training_rms"]))
+            test_rms_values.append(np.mean(run_data["testing_rms"]))
+    return {"train_rms": train_rms_values, "test_rms": test_rms_values}
 
 
 def plot_eci_uncertainty(eci, title=False):
