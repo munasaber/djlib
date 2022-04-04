@@ -774,7 +774,7 @@ def cross_validate_stan_model(
 
         # make run directory for this iteration of the kfold cross validation
         this_run_path = os.path.join(cross_val_directory, "crossval_" + str(count))
-        os.makedirs(this_run_path)
+        os.makedirs(this_run_path, exist_ok=True)
 
         # slice data; write training and testing data in separate files.
         training_data = data[train_index].tolist()
