@@ -647,7 +647,7 @@ model
 
 
 def format_stan_executable_script(
-    data_file, stan_model_file, eci_output_file, num_samples, num_chains=1
+    data_file, stan_model_file, eci_output_file, num_samples, energy_tag='formation_energy', num_chains=1
 ):
     """
     Parameters
@@ -681,7 +681,7 @@ data_file = '$data_file'
 data = dj.casm_query_reader(data_file)
 corr = np.squeeze(np.array(data["corr"]))
 corr = tuple(map(tuple, corr))
-energies = tuple(data["formation_energy"])
+energies = tuple(data['$energy_tag'])
 
 #Format Stan Model
 n_configs = len(energies)
@@ -706,6 +706,7 @@ with open('$eci_output_file', "wb") as f:
         num_chains=num_chains,
         num_samples=num_samples,
         eci_output_file=eci_output_file,
+        energy_tag=energy_tag
     )
     return executable_file
 
@@ -720,6 +721,7 @@ def cross_validate_stan_model(
     eci_variance_prior="gamma",
     stan_model_file="stan_model.txt",
     eci_output_file="results.pkl",
+    energy_tag="formation_energy",
     num_chains=1,
     kfold=5,
     submit_with_slurm=True,
@@ -746,6 +748,8 @@ def cross_validate_stan_model(
         Path to text file containing stan model specifics
     eci_output_file: string
         Path to file where Stan will write the sampled ECI
+    energy_tag: string
+        Tag for the energy column in the casm query output (Can be formation_energy, energy, energy_per_atom, formation_energy_per_atom, etc.)
     num_chains: int
         Number of simultaneous markov chains
     kfold: int
@@ -807,7 +811,7 @@ def cross_validate_stan_model(
 
         # format and write stan executable python script
         formatted_stan_script = format_stan_executable_script(
-            data_file, stan_model_file, eci_output_file, num_samples, num_chains=1
+            data_file, stan_model_file, eci_output_file, num_samples, energy_tag=energy_tag, num_chains=1
         )
 
         with open(os.path.join(this_run_path, "run_stan.py"), "w") as f:
