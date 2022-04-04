@@ -1,4 +1,3 @@
-from ntpath import join
 import djlib as dj
 import json
 import os
@@ -6,7 +5,7 @@ import numpy as np
 from scipy.spatial import ConvexHull
 from scipy.interpolate import griddata
 import matplotlib.pyplot as plt
-from sklearn.linear_model import LassoCV, TheilSenRegressor
+from sklearn.linear_model import LassoCV
 from sklearn.metrics import mean_squared_error
 import csv
 from glob import glob
@@ -319,7 +318,10 @@ def run_eci_monte_carlo(
 
 
 def find_proposed_ground_states(
-    corr, comp, formation_energy, eci_set,
+    corr,
+    comp,
+    formation_energy,
+    eci_set,
 ):
     """Collects indices of configurations that fall 'below the cluster expansion prediction of DFT-determined hull configurations'.
 
@@ -747,9 +749,9 @@ def cross_validate_stan_model(
     num_chains: int
         Number of simultaneous markov chains
     kfold: int
-        Number of "bins" to split training data into. 
+        Number of "bins" to split training data into.
     submit_with_slurm: bool
-        Decides if the function will submit with slurm. Defaults to true. 
+        Decides if the function will submit with slurm. Defaults to true.
 
     Returns:
     --------
@@ -784,12 +786,17 @@ def cross_validate_stan_model(
             json.dump(testing_data, f)
 
         # Also write training/ testing indices for easier post processing.
-        id_lists = {
+        run_info = {
             "training_set": train_index.tolist(),
             "test_set": test_index.tolist(),
+            "eci_variance_args": eci_variance_args,
+            "data_source": data_file,
+            "random_seed": random_seed,
         }
-        with open(os.path.join(this_run_path, "id_lists.json"), "w") as f:
-            json.dump(id_lists, f)
+        with open(os.path.join(this_run_path, "run_info.json"), "w") as f:
+            json.dump(run_info, f)
+
+        # Write model info
 
         # format and write stan model
         formatted_stan_model = format_stan_model(
@@ -817,6 +824,59 @@ def cross_validate_stan_model(
         if submit_with_slurm:
             dj.mc.submit_slurm_job(this_run_path)
         count += 1
+
+
+def crossval_analysis(kfold_dir):
+    """Calculates training and testing rms for cross validated fitting.
+
+    Parameters:
+    -----------
+    kfold_dir: str
+        Path to single set of partitioned data and the corresponding results.
+
+    Returns:
+    --------
+    dict{
+        training_rms: numpy.ndarray
+            RMS values for each ECI vector compared against training data.
+        testing_rms: numpy.ndarray
+            RMS values for each ECI vector compared against testing data.
+        training_indices: numpy.ndarray
+            Indices of configurations partitioned as training data from the original dataset.
+        testing_indices:
+            Indices of configurations partitioned as testing data from the original dataset.
+    }
+    """
+
+    # Load training and testing data
+    testing_data = dj.casm_query_reader(os.path.join(kfold_dir, "testing_data.json"))
+    training_data = dj.casm_query_reader(os.path.join(kfold_dir, "training_data.json"))
+
+    training_corr = np.squeeze(np.array(training_data["corr"]))
+    training_energies = np.array(training_data["formation_energy"])
+
+    testing_corr = np.squeeze(np.array(testing_data["corr"]))
+    testing_energies = np.array(testing_data["formation_energy"])
+
+    with open(os.path.join(kfold_dir, "results.pkl"), "rb") as f:
+        eci = pickle.load(f)["eci"]
+
+    train_data_predict = np.tanspose(training_corr @ eci)
+    test_data_predict = np.transpose(testing_corr @ eci)
+
+    # Calculate rms for training and testing datasets
+    training_rms = np.array(
+        [
+            np.sqrt(mean_squared_error(training_energies, train_data_predict[i]))
+            for i in range(train_data_predict.shape[0])
+        ]
+    )
+    testing_rms = np.array(
+        [
+            np.sqrt(mean_squared_error(testing_energies, test_data_predict[i]))
+            for i in range(test_data_predict.shape[0])
+        ]
+    )
 
 
 def plot_eci_uncertainty(eci, title=False):
@@ -875,4 +935,3 @@ def write_eci_json(eci, basis_json_path):
         data["orbits"][index]["cluster_functions"]["eci"] = eci[index]
 
     return data
-
