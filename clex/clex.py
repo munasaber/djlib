@@ -870,6 +870,11 @@ def bayes_train_test_analysis(run_dir):
     train_data_predict = np.transpose(training_corr @ eci)
     test_data_predict = np.transpose(testing_corr @ eci)
 
+    # Calculate RMS on testing data using only the mean ECI values
+    eci_mean = np.mean(eci, axis=1)
+    eci_mean_prediction = testing_corr @ eci_mean
+    eci_mean_rms = np.sqrt(mean_squared_error(testing_energies, eci_mean_prediction))
+
     # Calculate rms for training and testing datasets
     training_rms = np.array(
         [
@@ -890,7 +895,13 @@ def bayes_train_test_analysis(run_dir):
 
     # Collect all run information in a single dictionary and return.
     kfold_data = {}
-    kfold_data.update({"training_rms": training_rms, "testing_rms": testing_rms})
+    kfold_data.update(
+        {
+            "training_rms": training_rms,
+            "testing_rms": testing_rms,
+            "eci_mean_testing_rms": eci_mean_rms,
+        }
+    )
     kfold_data.update(run_info)
     return kfold_data
 
@@ -912,13 +923,22 @@ def kfold_analysis(kfold_dir):
     """
     train_rms_values = []
     test_rms_values = []
+    eci_mean_testing_rms = []
     kfold_subdirs = glob(os.path.join(kfold_dir, "*"))
     for run_dir in kfold_subdirs:
         if os.path.isdir(run_dir):
-            run_data = bayes_train_test_analysis(run_dir)
-            train_rms_values.append(np.mean(run_data["training_rms"]))
-            test_rms_values.append(np.mean(run_data["testing_rms"]))
-    return {"train_rms": train_rms_values, "test_rms": test_rms_values}
+            if os.path.isfile(os.path.join(run_dir, "results.pkl")):
+
+                run_data = bayes_train_test_analysis(run_dir)
+                train_rms_values.append(np.mean(run_data["training_rms"]))
+                test_rms_values.append(np.mean(run_data["testing_rms"]))
+                eci_mean_testing_rms.append(run_data["eci_mean_testing_rms"])
+    eci_mean_testing_rms = np.mean(np.array(eci_mean_testing_rms), axis=0)
+    return {
+        "train_rms": train_rms_values,
+        "test_rms": test_rms_values,
+        "eci_mean_testing_rms": eci_mean_testing_rms,
+    }
 
 
 def plot_eci_uncertainty(eci, title=False):
