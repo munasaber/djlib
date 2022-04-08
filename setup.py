@@ -4,7 +4,7 @@ setup(
     name="djlib",
     version="0.1.0",
     description="General utility package for AVDV people.",
-    author="Derick Ober",
+    author="Derick Ober, Jonathan Li",
     license="MIT License",
     packages=["casmcalls", "clex", "mc", "vasputils"],
     install_requires=[
