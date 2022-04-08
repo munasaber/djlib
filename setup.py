@@ -8,7 +8,6 @@ setup(
     license="MIT License",
     packages=["casmcalls", "clex", "mc", "vasputils"],
     install_requires=[
-        "casm-python>=1.2.1",
         "cupy-cuda114>=9.5.0",
         "httpstan>=4.6.1",
         "json5>=0.9.6",
@@ -18,11 +17,11 @@ setup(
         "plotly>=5.1.0",
         "pystan>=3.3.0",
         "scikit-learn>=1.0",
-        "scipy==1.7.1",
-        "seaborn==0.11.2",
-        "tensorflow==2.6.0",
-        "tinc==0.9.52",
-        "tqdm==4.62.2",
+        "scipy>=1.7.1",
+        "seaborn>=0.11.2",
+        "tensorflow>=2.6.0",
+        "tinc>=0.9.52",
+        "tqdm>=4.62.2",
     ],
 )
 
