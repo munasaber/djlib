@@ -578,7 +578,11 @@ def plot_clex_hull_data_1_x(
 
 
 def format_stan_model(
-    eci_variance_args, eci_prior="normal", eci_variance_prior="gamma"
+    eci_variance_args,
+    likelihood_variance_args,
+    eci_prior="normal",
+    eci_variance_prior="gamma",
+    likelihood_variance_prior= "gamma"
 ):
     """
     Parameters
@@ -599,22 +603,21 @@ def format_stan_model(
     """
 
     # Old args:
-    # likelihood_variance_args,
-    # likelihood_variance_prior="gamma",
-
     # TODO: Add filter on string arguments
 
     supported_eci_priors = ["normal"]
     supported_eci_variance_priors = ["gamma"]
-    # supported_model_variance_priors = ["gamma"]
+    supported_model_variance_priors = ["gamma"]
 
     assert eci_prior in supported_eci_priors, "Specified ECI prior is not suported."
     assert (
         eci_variance_prior in supported_eci_variance_priors
     ), "Specified ECI variance prior is not supported."
 
-    # assert (likelihood_variance_prior in supported_model_variance_priors), "Specified model variance prior is not supported."
-    # formatted_sigma = likelihood_variance_prior + str(likelihood_variance_args)
+    assert (
+        likelihood_variance_prior in supported_model_variance_priors
+    ), "Specified model variance prior is not supported."
+    formatted_sigma = likelihood_variance_prior + str(likelihood_variance_args)
 
     formatted_eci_variance = eci_variance_prior + str(eci_variance_args)
 
@@ -629,11 +632,11 @@ def format_stan_model(
 parameters {
         vector[K] eci;
         vector<lower=0>[K] eci_variance;
-        //real<lower=0> sigma;
+        real<lower=0> sigma;
     }
 model 
     {
-        int sigma = 200 ;
+        sigma ~ $formatted_sigma;
         for (k in 1:K){
             eci_variance[k] ~ $formatted_eci_variance ;
             eci[k] ~ normal(0,eci_variance[k]);
@@ -641,13 +644,18 @@ model
         energies ~ normal(corr * eci, sigma);
     }"""
     )
-    # model_template = ce_model.substitute(formatted_sigma=formatted_sigma, formatted_eci_variance=formatted_eci_variance)
-    model_template = ce_model.substitute(formatted_eci_variance=formatted_eci_variance)
+    model_template = ce_model.substitute(formatted_sigma=formatted_sigma, formatted_eci_variance=formatted_eci_variance)
+    #model_template = ce_model.substitute(formatted_eci_variance=formatted_eci_variance)
     return model_template
 
 
 def format_stan_executable_script(
-    data_file, stan_model_file, eci_output_file, num_samples, energy_tag='formation_energy', num_chains=1
+    data_file,
+    stan_model_file,
+    eci_output_file,
+    num_samples,
+    energy_tag="formation_energy",
+    num_chains=1,
 ):
     """
     Parameters
@@ -706,7 +714,7 @@ with open('$eci_output_file', "wb") as f:
         num_chains=num_chains,
         num_samples=num_samples,
         eci_output_file=eci_output_file,
-        energy_tag=energy_tag
+        energy_tag=energy_tag,
     )
     return executable_file
 
@@ -715,10 +723,12 @@ def cross_validate_stan_model(
     data_file,
     num_samples,
     eci_variance_args,
+    likelihood_variacne_args,
     cross_val_directory,
     random_seed=5,
     eci_prior="normal",
     eci_variance_prior="gamma",
+    likelihood_variance_prior='gamma',
     stan_model_file="stan_model.txt",
     eci_output_file="results.pkl",
     energy_tag="formation_energy",
@@ -804,14 +814,19 @@ def cross_validate_stan_model(
 
         # format and write stan model
         formatted_stan_model = format_stan_model(
-            eci_variance_args, eci_prior, eci_variance_prior
+            eci_variance_args=eci_variance_args, eci_prior=eci_prior, eci_variance_prior=eci_variance_prior,likelihood_variance_args=likelihood_variacne_args
         )
         with open(os.path.join(this_run_path, stan_model_file), "w") as f:
             f.write(formatted_stan_model)
 
         # format and write stan executable python script
         formatted_stan_script = format_stan_executable_script(
-            data_file, stan_model_file, eci_output_file, num_samples, energy_tag=energy_tag, num_chains=1
+            data_file,
+            stan_model_file,
+            eci_output_file,
+            num_samples,
+            energy_tag=energy_tag,
+            num_chains=1,
         )
 
         with open(os.path.join(this_run_path, "run_stan.py"), "w") as f:
