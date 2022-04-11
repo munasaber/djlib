@@ -1,3 +1,4 @@
+import djlib as dj
 import json
 import os
 import numpy as np
@@ -11,80 +12,8 @@ from glob import glob
 from tqdm import tqdm
 import pickle
 from string import Template
-
-
-# import cuml
-
-
-def read_comp_and_energy_points(datafile):
-    """Generates points in composition and energy space for use in convex hull algorithms.
-
-    Parameters
-    ----------
-    datafile : str
-        path to the casm query output json file.
-
-    Returns
-    -------
-    points: ndarray,  shape(number_configurations, number_comp_axes+1)
-        Points in composition-energy space.
-    """
-    with open(datafile) as f:
-        data = json.load(f)
-    points = [
-        [x[0] for x in entry["comp"]] + [entry["formation_energy"]] for entry in data
-    ]
-    points = np.array(points)
-    return points
-
-
-def read_corr_comp_formation(datafile):
-    """
-    read_corr_and_formation_energy(datafile)
-
-    Reads and returns data from json containing correlation functions and formation energies.
-    Args:
-        datafile(str): Path to the json file containing the correlation functions and formation energies.
-    Returns:
-        tuple(
-            corr,                   (ndarray): Correlation functions: nxm matrix of correlation funcitons: each row corresponds to a configuration.
-            formation_energy,       (ndarray): Formation energies: vecrtor of n elements: one for each configuration.
-            scel_names              (ndarray): The name for a given configuration. Vector of n elements.
-        )
-    """
-    with open(datafile) as f:
-        data = json.load(f)
-
-    corr = []
-    formation_energy = []
-    scel_names = []
-    comp = []
-    clex = []
-    # TODO: add flexibility for absence of some keys in the json file
-    for entry in data:
-        if "corr" in entry.keys():
-            corr.append(np.array(entry["corr"]).flatten())
-        if "formation_energy" in entry.keys():
-            formation_energy.append(entry["formation_energy"])
-        if "name" in entry.keys():
-            scel_names.append(entry["name"])
-        if "comp" in entry.keys():
-            comp.append(entry["comp"][0])  # Assumes a binary
-        if "clex()" in entry.keys():
-            clex.append(entry["clex()"])
-    corr = np.array(corr)
-    formation_energy = np.array(formation_energy)
-    scel_names = np.array(scel_names)
-    comp = np.array(comp)
-    clex = np.array(clex)
-    results = {
-        "corr": corr,
-        "formation_energy": formation_energy,
-        "names": scel_names,
-        "comp": comp,
-        "clex": clex
-    }
-    return results
+import djlib.vasputils as vu
+from sklearn.model_selection import ShuffleSplit
 
 def read_corr_comp_formation_2x(datafile):
     """
@@ -319,7 +248,7 @@ def run_eci_monte_carlo(
             List of configuraton names used in the Monte Carlo calculations.
     """
     # Read data from casm query json output
-    data = read_corr_comp_formation(corr_comp_energy_file)
+    data = vu.casm_query_reader(corr_comp_energy_file)
     corr = data["corr"]
     formation_energy = data["formation_energy"]
     comp = data["comp"]
@@ -522,10 +451,6 @@ def find_proposed_ground_states(
     return proposed_ground_states_indices
 
 
-def energy_stddev_statistics():
-    """Collects standard deviations of"""
-
-
 def plot_eci_hist(eci_data, xmin=None, xmax=None):
     plt.hist(x=eci_data, bins="auto", color="xkcd:crimson", alpha=0.7, rwidth=0.85)
     if xmin and xmax:
@@ -703,7 +628,7 @@ def format_stan_model(
     likelihood_variance_args,
     eci_prior="normal",
     eci_variance_prior="gamma",
-    likelihood_variance_prior="gamma",
+    likelihood_variance_prior= "gamma"
 ):
     """
     Parameters
@@ -716,8 +641,6 @@ def format_stan_model(
         Distribution type for ECI priors
     eci_variance_prior: string
         Distribution type for ECI variance prior
-    likelihood_variance_prior: string
-        Distribution type for likelihood variance prior
 
     Returns
     -------
@@ -725,6 +648,7 @@ def format_stan_model(
         Formatted stan model template
     """
 
+    # Old args:
     # TODO: Add filter on string arguments
 
     supported_eci_priors = ["normal"]
@@ -735,12 +659,15 @@ def format_stan_model(
     assert (
         eci_variance_prior in supported_eci_variance_priors
     ), "Specified ECI variance prior is not supported."
+
     assert (
         likelihood_variance_prior in supported_model_variance_priors
     ), "Specified model variance prior is not supported."
-
     formatted_sigma = likelihood_variance_prior + str(likelihood_variance_args)
+
     formatted_eci_variance = eci_variance_prior + str(eci_variance_args)
+
+    # used to have  sigma ~ $formatted_sigma ;
     ce_model = Template(
         """data {
         int K; 
@@ -755,7 +682,7 @@ parameters {
     }
 model 
     {
-        sigma ~ $formatted_sigma ;
+        sigma ~ $formatted_sigma;
         for (k in 1:K){
             eci_variance[k] ~ $formatted_eci_variance ;
             eci[k] ~ normal(0,eci_variance[k]);
@@ -763,14 +690,18 @@ model
         energies ~ normal(corr * eci, sigma);
     }"""
     )
-    model_template = ce_model.substitute(
-        formatted_sigma=formatted_sigma, formatted_eci_variance=formatted_eci_variance
-    )
+    model_template = ce_model.substitute(formatted_sigma=formatted_sigma, formatted_eci_variance=formatted_eci_variance)
+    #model_template = ce_model.substitute(formatted_eci_variance=formatted_eci_variance)
     return model_template
 
 
 def format_stan_executable_script(
-    data_file, stan_model_file, eci_output_file, num_samples, num_chains=1
+    data_file,
+    stan_model_file,
+    eci_output_file,
+    num_samples,
+    energy_tag="formation_energy",
+    num_chains=1,
 ):
     """
     Parameters
@@ -795,13 +726,22 @@ def format_stan_executable_script(
         """
 import pickle 
 import stan
+import djlib as dj
 import djlib.clex as cl
+import numpy as np
 
 # Load Casm Data
 data_file = '$data_file'
+<<<<<<< HEAD
 data = cl.read_corr_comp_formation_2x(data_file)
 corr = tuple(map(tuple, data["corr"]))
 energies = tuple(data["formation_energy"])
+=======
+data = dj.casm_query_reader(data_file)
+corr = np.squeeze(np.array(data["corr"]))
+corr = tuple(map(tuple, corr))
+energies = tuple(data['$energy_tag'])
+>>>>>>> 1f2997cb7570969b1c9780fb0a871e95b9b5ae5d
 
 #Format Stan Model
 n_configs = len(energies)
@@ -826,8 +766,250 @@ with open('$eci_output_file', "wb") as f:
         num_chains=num_chains,
         num_samples=num_samples,
         eci_output_file=eci_output_file,
+        energy_tag=energy_tag,
     )
     return executable_file
+
+
+def cross_validate_stan_model(
+    data_file,
+    num_samples,
+    eci_variance_args,
+    likelihood_variance_args,
+    cross_val_directory,
+    random_seed=5,
+    eci_prior="normal",
+    eci_variance_prior="gamma",
+    likelihood_variance_prior='gamma',
+    stan_model_file="stan_model.txt",
+    eci_output_file="results.pkl",
+    energy_tag="formation_energy",
+    num_chains=1,
+    kfold=5,
+    submit_with_slurm=True,
+):
+    """Perform kfold cross validation on a specific stan model. Wraps around format_stan_model() and format_stan_executable_script().
+
+    Parameters:
+    -----------
+    data_file: string
+        Path to casm query output containing correlations, compositions and formation energies
+    num_samples: int
+        Number of samples in the stan monte carlo process
+    eci_variance_args: tuple
+        arguments for gamma distribution as a tuple. eg. eci_variance_args = (1,1)
+    cross_val_directory: str
+        Path to directory where the kfold cross validation runs will write data.
+    random_seed: int
+        Random number seed for randomized kfold data splitting. Providing the same seed will result in identical training / testing data partitions.
+    eci_prior: string
+        Distribution type for ECI priors
+    eci_variance_prior: string
+        Distribution type for ECI variance prior
+    stan_model_file: string
+        Path to text file containing stan model specifics
+    eci_output_file: string
+        Path to file where Stan will write the sampled ECI
+    energy_tag: string
+        Tag for the energy column in the casm query output (Can be formation_energy, energy, energy_per_atom, formation_energy_per_atom, etc.)
+    num_chains: int
+        Number of simultaneous markov chains
+    kfold: int
+        Number of "bins" to split training data into.
+    submit_with_slurm: bool
+        Decides if the function will submit with slurm. Defaults to true.
+
+    Returns:
+    --------
+    None
+    """
+    # create directory for kfold cross validation
+    os.makedirs(cross_val_directory, exist_ok=True)
+
+    # load data
+    with open(data_file) as f:
+        data = np.array(json.load(f))
+
+    # setup kfold batches, format for stan input
+    data_length = data.shape[0]
+    ss = ShuffleSplit(n_splits=kfold, random_state=random_seed)
+    indices = range(data_length)
+
+    count = 0
+    for train_index, test_index in ss.split(indices):
+
+        # make run directory for this iteration of the kfold cross validation
+        this_run_path = os.path.join(cross_val_directory, "crossval_" + str(count))
+        os.makedirs(this_run_path, exist_ok=True)
+
+        # slice data; write training and testing data in separate files.
+        training_data = data[train_index].tolist()
+        testing_data = data[test_index].tolist()
+        training_data_path = os.path.join(this_run_path, "training_data.json")
+        with open(training_data_path, "w") as f:
+            json.dump(training_data, f)
+        with open(os.path.join(this_run_path, "testing_data.json"), "w") as f:
+            json.dump(testing_data, f)
+
+        # Also write training/ testing indices for easier post processing.
+        run_info = {
+            "training_set": train_index.tolist(),
+            "test_set": test_index.tolist(),
+            "eci_variance_args": eci_variance_args,
+            "data_source": data_file,
+            "random_seed": random_seed,
+        }
+        with open(os.path.join(this_run_path, "run_info.json"), "w") as f:
+            json.dump(run_info, f)
+
+        # Write model info
+
+        # format and write stan model
+        formatted_stan_model = format_stan_model(
+            eci_variance_args=eci_variance_args, eci_prior=eci_prior, eci_variance_prior=eci_variance_prior,likelihood_variance_args=likelihood_variance_args
+        )
+        with open(os.path.join(this_run_path, stan_model_file), "w") as f:
+            f.write(formatted_stan_model)
+
+        # format and write stan executable python script
+        formatted_stan_script = format_stan_executable_script(
+            data_file,
+            stan_model_file,
+            eci_output_file,
+            num_samples,
+            energy_tag=energy_tag,
+            num_chains=1,
+        )
+
+        with open(os.path.join(this_run_path, "run_stan.py"), "w") as f:
+            f.write(formatted_stan_script)
+
+        # format and write slurm submission file
+        user_command = "python run_stan.py"
+        dj.mc.format_slurm_job(
+            jobname="eci_var_%.4f_crossval_" % eci_variance_args[1] + str(count),
+            hours=20,
+            user_command=user_command,
+            output_dir=this_run_path,
+        )
+        if submit_with_slurm:
+            dj.mc.submit_slurm_job(this_run_path)
+        count += 1
+
+
+def bayes_train_test_analysis(run_dir):
+    """Calculates training and testing rms for cross validated fitting.
+
+    Parameters:
+    -----------
+    run_dir: str
+        Path to single set of partitioned data and the corresponding results.
+
+    Returns:
+    --------
+    dict{
+        training_rms: numpy.ndarray
+            RMS values for each ECI vector compared against training data.
+        testing_rms: numpy.ndarray
+            RMS values for each ECI vector compared against testing data.
+        training_set: numpy.ndarray
+            Indices of configurations partitioned as training data from the original dataset.
+        test_set:
+            Indices of configurations partitioned as testing data from the original dataset.
+        eci_variance_args: list
+            Arguments for ECI prior distribution. Currently assumes Gamma distribution with two arguments: first argument is the gamma shape parameter, second argument is the gamma shrinkage parameter.
+        data_source: str
+            Path to the original data file used to generate the training and testing datasets.
+        random_seed: int
+            Value used for the random seed generator.
+    }
+    """
+
+    # Load training and testing data
+    testing_data = dj.casm_query_reader(os.path.join(run_dir, "testing_data.json"))
+    training_data = dj.casm_query_reader(os.path.join(run_dir, "training_data.json"))
+
+    training_corr = np.squeeze(np.array(training_data["corr"]))
+    training_energies = np.array(training_data["formation_energy"])
+
+    testing_corr = np.squeeze(np.array(testing_data["corr"]))
+    testing_energies = np.array(testing_data["formation_energy"])
+
+    with open(os.path.join(run_dir, "results.pkl"), "rb") as f:
+        eci = pickle.load(f)["eci"]
+
+    train_data_predict = np.transpose(training_corr @ eci)
+    test_data_predict = np.transpose(testing_corr @ eci)
+
+    # Calculate RMS on testing data using only the mean ECI values
+    eci_mean = np.mean(eci, axis=1)
+    eci_mean_prediction = testing_corr @ eci_mean
+    eci_mean_rms = np.sqrt(mean_squared_error(testing_energies, eci_mean_prediction))
+
+    # Calculate rms for training and testing datasets
+    training_rms = np.array(
+        [
+            np.sqrt(mean_squared_error(training_energies, train_data_predict[i]))
+            for i in range(train_data_predict.shape[0])
+        ]
+    )
+    testing_rms = np.array(
+        [
+            np.sqrt(mean_squared_error(testing_energies, test_data_predict[i]))
+            for i in range(test_data_predict.shape[0])
+        ]
+    )
+
+    # Collect parameters unique to this kfold run
+    with open(os.path.join(run_dir, "run_info.json"), "r") as f:
+        run_info = json.load(f)
+
+    # Collect all run information in a single dictionary and return.
+    kfold_data = {}
+    kfold_data.update(
+        {
+            "training_rms": training_rms,
+            "testing_rms": testing_rms,
+            "eci_mean_testing_rms": eci_mean_rms,
+        }
+    )
+    kfold_data.update(run_info)
+    return kfold_data
+
+
+def kfold_analysis(kfold_dir):
+    """Collects statistics across k fits.
+
+    Parameters:
+    -----------
+    kfold_dir: str
+        Path to directory containing the k bayesian calibration runs as subdirectories.
+
+    Returns:
+    --------
+    train_rms: np.array
+        Average training rms value for each of the k fitting runs.
+    test_rms: np.array
+        Average testing rms value for each of the k fitting runs.
+    """
+    train_rms_values = []
+    test_rms_values = []
+    eci_mean_testing_rms = []
+    kfold_subdirs = glob(os.path.join(kfold_dir, "*"))
+    for run_dir in kfold_subdirs:
+        if os.path.isdir(run_dir):
+            if os.path.isfile(os.path.join(run_dir, "results.pkl")):
+
+                run_data = bayes_train_test_analysis(run_dir)
+                train_rms_values.append(np.mean(run_data["training_rms"]))
+                test_rms_values.append(np.mean(run_data["testing_rms"]))
+                eci_mean_testing_rms.append(run_data["eci_mean_testing_rms"])
+    eci_mean_testing_rms = np.mean(np.array(eci_mean_testing_rms), axis=0)
+    return {
+        "train_rms": train_rms_values,
+        "test_rms": test_rms_values,
+        "eci_mean_testing_rms": eci_mean_testing_rms,
+    }
 
 
 def plot_eci_uncertainty(eci, title=False):

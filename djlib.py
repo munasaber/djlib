@@ -8,6 +8,43 @@ import json
 libpath = pathlib.Path(__file__).parent.resolve()
 
 
+def casm_query_reader(casm_query_json_path="pass", casm_query_json_data=None):
+    """Reads keys and values from casm query json dictionary. 
+    Parameters:
+    -----------
+    casm_query_json_path: str
+        Absolute path to casm query json file.
+        Defaults to 'pass' which means that the function will look to take a dictionary directly.
+    casm_query_json_data: dict
+        Can also directly take the casm query json dictionary.
+        Default is None.
+    
+    Returns:
+    results: dict
+        Dictionary of all data grouped by keys (not grouped by configuraton)
+    """
+    if casm_query_json_data is None:
+        with open(casm_query_json_path) as f:
+            data = json.load(f)
+    else:
+        data = casm_query_json_data
+    keys = data[0].keys()
+    data_collect = []
+    for i in range(len(keys)):
+        data_collect.append([])
+
+    for element_dict in data:
+        for index, key in enumerate(keys):
+            data_collect[index].append(element_dict[key])
+
+    results = dict(zip(keys, data_collect))
+    if "comp" in results.keys():
+        comp = np.array(results["comp"])
+        if len(comp.shape) > 2:
+            results["comp"] = np.squeeze(comp).tolist()
+    return results
+
+
 def get_dj_dir():
     libpath = pathlib.Path(__file__).parent.resolve()
     return libpath
@@ -72,10 +109,10 @@ def update_properties_files(casm_root_dir):
             if os.path.isfile(properties_path):
                 with open(properties_path) as f:
                     properties = json.load(f)
-                if("coord_mode" in properties):
+                if "coord_mode" in properties:
                     properties["coordinate_mode"] = properties["coord_mode"]
-                if properties["atom_properties"]["force"]["value"]==[]:
-                    properties["atom_properties"]["force"]["value"]=[[0.0,0.0,0.0]]
+                if properties["atom_properties"]["force"]["value"] == []:
+                    properties["atom_properties"]["force"]["value"] = [[0.0, 0.0, 0.0]]
                     print("Fixed empty forces in %s" % config)
                 with open(
                     os.path.join(config, "calctype.default/properties.calc.json"), "w"
@@ -83,7 +120,6 @@ def update_properties_files(casm_root_dir):
                     json.dump(properties, f, indent="")
             else:
                 print("Could not find %s" % properties_path)
-
 
 
 def move_calctype_dirs(casm_root_dir):
