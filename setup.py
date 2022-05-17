@@ -6,7 +6,7 @@ setup(
     description="General utility package for AVDV people.",
     author="Derick Ober, Jonathan Li",
     license="MIT License",
-    packages=["casmcalls", "clex", "mc", "vasputils"],
+    packages=["casmcalls", "clex", "mc", "vasputils", "voltage"],
     install_requires=[
         "cupy-cuda114>=9.5.0",
         "httpstan>=4.6.1",

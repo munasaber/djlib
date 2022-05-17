@@ -732,16 +732,9 @@ import numpy as np
 
 # Load Casm Data
 data_file = '$data_file'
-<<<<<<< HEAD
 data = cl.read_corr_comp_formation_2x(data_file)
 corr = tuple(map(tuple, data["corr"]))
 energies = tuple(data["formation_energy"])
-=======
-data = dj.casm_query_reader(data_file)
-corr = np.squeeze(np.array(data["corr"]))
-corr = tuple(map(tuple, corr))
-energies = tuple(data['$energy_tag'])
->>>>>>> 1f2997cb7570969b1c9780fb0a871e95b9b5ae5d
 
 #Format Stan Model
 n_configs = len(energies)
